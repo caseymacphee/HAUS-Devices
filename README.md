@@ -1,4 +1,2 @@
-HAUS-Devices
-============
-
-Device library for RPi-HAUS
+RPi-HOUSE_Devices
+=================

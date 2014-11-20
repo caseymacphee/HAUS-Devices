@@ -1,0 +1,215 @@
+### Python package for the open source RPi-HAUS module ###
+### Home Automation User Services ###
+###### Configured to be run on Debian-Wheezy BST 2014 armv6l GNU/Linux ######
+###########/dev/ttyACM*#######
+import serial
+import io
+import sys
+import glob
+import time
+import json
+import threading
+
+class Boards(object):
+    """
+This function is the working head for Raphi. Currently processes based on regular expressesions of the
+ /dev/yourarduinousbserialpathhere (\from the scanportsmodule).
+Returns a string with the serials that fit that specification in the form of a list of tuples (connection first, test buffer last).
+The connection returns in it's open state .
+    """
+    def __init__(self):
+        self.serial_connections = []
+        self.labeled_connections = {}
+        self.username = 'username'
+        self.access_key = 'password'
+        self.name_type = []
+        self.timezone = ''
+        self.controllers = {}
+        self.monitors = {}
+    
+    def serve_forever(self):
+        try:
+            self.run_setup()
+            inf = float("inf")
+            controllers = threading.Thread(target=self.speak_to, args=([inf]))
+            monitors = threading.Thread(target=self.listen_to, args=(['',inf]))
+            controllers.daemon = True
+            monitors.daemon = True
+            controllers.start()
+            monitors.start()
+        except:
+            controllers.join()
+            monitors.join()
+
+
+    def pickup_conn(self):
+        serial_paths = self._serial_ports()
+        for port in serial_paths:
+            connection = serial.serial_for_url(port, timeout = 5)
+            # connection_wrapper = io.TextIOWrapper(io.BufferedRWPair(connection,connection))
+            if connection.isOpen():
+                connection.close()
+            self.serial_connections.append(connection)
+        return self.serial_connections
+
+    def test_ports(self):
+        pass
+
+    def test_message(self, devices, timeout = 30):
+        """
+A 'timeout' long test of the serial read/write protocol.
+        """
+        start = time.time()
+        current_time = start
+        while current_time - start < timeout:
+            for name, device in devices.labeled_connections.iteritems():
+                if not device.isOpen():
+                    device.open()
+                # device_wrapper = io.TextIOWrapper(io.BufferedRWPair(device, device))
+                # device_wrapper.flush()
+                if name == 'uri':
+                    message = device.readline()
+                elif name == 'zor':
+                    message = device.readline()
+                    device.write('2')
+                message = message.rstrip()
+                print devices.username, ":", name, ":", message
+                current_time = time.time()
+        for device in self.serial_connections:
+            if device.isOpen:
+                device.close()
+
+    def listen_to(self, timeout = 360):
+        ### listening for 30 second timeout for testing ###
+        start = time.time()
+        current_time = start
+        for port in self.monitors.itervalues():
+            if not port.isOpen():
+                port.open()
+        while current_time - start < timeout:
+            for name, port in self.monitors.iteritems():
+                ### Your logic goes here ###
+                message = port.readline()
+                jsonmessage = self.build_json(message, name)
+                print jsonmessage
+            current_time = time.time()
+        for device in self.monitors.itervalues():
+            if device.isOpen:
+                device.close()
+
+    def speak_to(self, message = '', timeout = 360):
+        start = time.time()
+        current_time = start
+        for port in self.controllers.itervalues():
+            if not port.isOpen():
+                port.open()
+        while current_time - start < timeout:
+            ###Specific instructions to my general setup ###
+            for name, port in self.controllers.iteritems():
+                ### Your logic goes here ###
+                if name == 'zor':
+                    message = port.readline()
+                    message = self.build_json(message, name)
+                    print message
+                    for relay in '1234':
+                        ## Simple test suite ##
+                        port.write(relay)
+                        message = port.readline()
+                        message = self.build_json(message, name)
+                        print message
+                        port.write(relay)
+                        message = port.readline()
+                        message = self.build_json(message, name)
+                        print message
+                        time.sleep(1)
+                else:
+                    message = port.readline()
+                    jsonmessage = self.build_json(message, name)
+                    print jsonmessage
+
+            current_time = time.time()
+        for device in self.controllers.itervalues():
+            if device.isOpen:
+                device.close()
+
+    def build_json(self, message, name):
+        message = message.rstrip()
+        data_thread = {}
+        key_val_pairs = message.split(',')
+        for pair in key_val_pairs:
+            key, val = pair.split('=')
+            data_thread[key] = val 
+        data_thread['name'] = name
+        data_thread['user'] = self.username
+        data_thread['access_key'] = self.access_key
+        data_thread['device_type'] = 'monitor'
+        return json.dumps(data_thread, sort_keys = True)
+
+    def run_setup(self):
+        num_devices=len(self.pickup_conn())
+        setup_instructions = """
+There are {} ports available.
+If you would like to run through the device
+setup (which will require you unplugging your
+devices, and naming them one by one as they
+connect. Enter 'quit' or 'continue': """.format(num_devices)
+        answer = raw_input(setup_instructions)
+        if answer == 'q' or answer == 'quit':
+            pass
+        if answer == 'c' or answer == 'continue':
+            answer = int(raw_input('How many devices? (1-n): '))
+            print "Unplug the devices now to continue..."
+            starting = num_devices - answer
+            if len(self._serial_ports()) > 0:
+                while len(self._serial_ports()) > (starting):
+                    time.sleep(1)
+            current_number = 1
+            for index in xrange(answer):
+                print "Now enter device {}...".format(current_number)
+                # print len(self.serial_connections)
+                # print (starting + current_number)
+                while len(self._serial_ports()) < current_number:
+                    time.sleep(1)
+                name = raw_input("What would you like to call device {}?: ".format(current_number))
+                sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
+                baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+                self.name_type.append((str(name), str(sensor_type)))
+                last_device_connected = self.pickup_conn()[-1]
+                last_device_connected.baud_rate = baud_rate
+                if sensor_type == 'controller':
+                    self.controllers[name] = last_device_connected
+                elif sensor_type == 'monitor':
+                    self.monitors[name] = last_device_connected
+                self.labeled_connections[name] = last_device_connected
+                current_number += 1
+            answer = raw_input("What is the account username for these objects online: ")
+            self.username = answer
+            answer = raw_input("What is the access key?: ")
+            self.access_key = answer
+            answer = raw_input("What is your current timezone?: ")
+            self.timezone = answer
+            return self.labeled_connections
+
+    def PiClient_request(self):
+        pass
+
+    def _serial_ports(self):
+        """Lists serial ports
+
+        :raises EnvironmentError:
+        On unsupported or unknown platforms
+        :returns:
+        A list of available serial ports
+        """
+        if sys.platform.startswith('win'):
+            ports = ['COM' + str(i + 1) for i in range(256)]
+
+        elif sys.platform.startswith('linux') or sys.platform.startswith('linux2') or sys.platform.startswith('cygwin'):
+            ports = glob.glob('/dev/ttyACM*')
+
+        elif sys.platform.startswith('darwin'):
+            ports = glob.glob('/dev/tty.usbmodem*')
+
+        else:
+            raise EnvironmentError('Unsupported platform')
+        return ports
