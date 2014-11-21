@@ -188,6 +188,8 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
     def special_json(self, name, port, empty_read_limit = 10):
             if port.readable():
                 ### VAL acts as a token to know whether the next bytes string is a key or value in the serialized form###
+                ## based on continuos bytes with no newline return##
+                # The start of line for this test is the '$' for username, and the EOL is '#' #
                 VAL = True
                 contents = {}
                 if not port.isOpen():
