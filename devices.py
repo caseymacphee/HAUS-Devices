@@ -26,6 +26,9 @@ The connection returns in it's open state .
         self.timezone = ''
         self.controllers = {}
         self.monitors = {}
+
+        ### for testing go straight to setup ###
+        self.run_setup()
     
     def serve_forever(self):
         try:
@@ -41,7 +44,6 @@ The connection returns in it's open state .
             controllers.join()
             monitors.join()
 
-
     def pickup_conn(self):
         serial_paths = self._serial_ports()
         for port in serial_paths:
@@ -55,31 +57,7 @@ The connection returns in it's open state .
     def test_ports(self):
         pass
 
-    def test_message(self, devices, timeout = 30):
-        """
-A 'timeout' long test of the serial read/write protocol.
-        """
-        start = time.time()
-        current_time = start
-        while current_time - start < timeout:
-            for name, device in devices.labeled_connections.iteritems():
-                if not device.isOpen():
-                    device.open()
-                # device_wrapper = io.TextIOWrapper(io.BufferedRWPair(device, device))
-                # device_wrapper.flush()
-                if name == 'uri':
-                    message = device.readline()
-                elif name == 'zor':
-                    message = device.readline()
-                    device.write('2')
-                message = message.rstrip()
-                print devices.username, ":", name, ":", message
-                current_time = time.time()
-        for device in self.serial_connections:
-            if device.isOpen:
-                device.close()
-
-    def listen_to(self, timeout = 360):
+    def read_monitors_to_json(self, timeout = 360):
         ### listening for 30 second timeout for testing ###
         start = time.time()
         current_time = start
@@ -97,36 +75,35 @@ A 'timeout' long test of the serial read/write protocol.
             if device.isOpen:
                 device.close()
 
-    def speak_to(self, message = '', timeout = 360):
+    def talk_to_controllers(self, message = '', timeout = 360):
         start = time.time()
         current_time = start
         for port in self.controllers.itervalues():
             if not port.isOpen():
                 port.open()
         while current_time - start < timeout:
-            ###Specific instructions to my general setup ###
             for name, port in self.controllers.iteritems():
                 ### Your logic goes here ###
                 if name == 'zor':
-                    message = port.readline()
-                    message = self.build_json(message, name)
-                    print message
+                    response = port.readline()
+                    response = self.build_json(response, name)
+                    print response
                     for relay in '1234':
                         ## Simple test suite ##
                         port.write(relay)
-                        message = port.readline()
-                        message = self.build_json(message, name)
-                        print message
+                        response = port.readline()
+                        response = self.build_json(response, name)
+                        print response
                         port.write(relay)
-                        message = port.readline()
-                        message = self.build_json(message, name)
-                        print message
+                        response = port.readline()
+                        response = self.build_json(response, name)
+                        print response
                         time.sleep(1)
                 else:
-                    message = port.readline()
-                    jsonmessage = self.build_json(message, name)
+                    port.write(response)
+                    response = port.readline()
+                    jsonmessage = self.build_json(response, name)
                     print jsonmessage
-
             current_time = time.time()
         for device in self.controllers.itervalues():
             if device.isOpen:
@@ -193,9 +170,58 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
     def PiClient_request(self):
         pass
 
+    def special_json(self, name, port, timeout = 3):
+            if port.readable():
+                ### VAL acts as a token to know whether the next bytes string is a key or value in the serialized form###
+                VAL = True
+                contents = {}
+                if not port.isOpen():
+                    port.open()
+                current = port.read()
+                while current is not '$':
+                    current = port.read()
+                reading = True
+                status = True
+                empty_read_count = 0
+                empty_read_limit = 10
+                while reading and empty_read_count <= empty_read_limit:
+                    current_key = ''
+                    current_value = ''
+                    current_char_in = port.read()
+                    if current_char_in == '':
+                        status = False
+                        empty_read_count += 1
+                    elif current_char_in == '#':
+                        ## IE we are getting data but end of line ##
+                        status = True
+                        reading = False
+                    elif current_char_in == ',':
+                        ## There is a new set of key value pairs ##
+                        contents[current_key] = current_value
+                        current_value = ''
+                        current_key = ''
+                        status = True
+                    elif current_char_in == '=':
+                        status = True
+                        VAL = not VAL
+                    else:
+                        status = True
+                        if VAL:
+                            current_value = current_value + current_char_in
+                        else:
+                            current_key = current_key + current_char_in
+
+                print "Read status: ",status
+                if empty_read_count<= empty_read_limit:
+                    contents['name'] = name
+                    contents['user'] = self.username
+                    contents['access_key'] = self.access_key
+                    contents['device_type'] = 'monitor'
+                    return json.dumps(data_thread, sort_keys = True)
+
+
     def _serial_ports(self):
         """Lists serial ports
-
         :raises EnvironmentError:
         On unsupported or unknown platforms
         :returns:
@@ -203,13 +229,10 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
         """
         if sys.platform.startswith('win'):
             ports = ['COM' + str(i + 1) for i in range(256)]
-
         elif sys.platform.startswith('linux') or sys.platform.startswith('linux2') or sys.platform.startswith('cygwin'):
             ports = glob.glob('/dev/ttyACM*')
-
         elif sys.platform.startswith('darwin'):
             ports = glob.glob('/dev/tty.usbmodem*')
-
         else:
             raise EnvironmentError('Unsupported platform')
         return ports
