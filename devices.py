@@ -9,7 +9,8 @@ import glob
 import time
 import json
 import threading
-
+from threading import Lock
+from synchronize import Allocate_port_locks
 class Boards(object):
     """
 This function is the working head for Raphi. Currently processes based on regular expressesions of the
@@ -17,11 +18,20 @@ This function is the working head for Raphi. Currently processes based on regula
 Returns a string with the serials that fit that specification in the form of a list of tuples (connection first, test buffer last).
 The connection returns in it's open state .
     """
+    __metaclass__ = Allocate_port_locks
+    _instances=[]
     def __init__(self):
+        _instances=[]
+        if(len(self._instances) > 1):
+            self._instances.pop(1).kill() #kill the oldest instance
+        else:
+            self._instances.append(self)
+
+        self.devices
         self.serial_connections = []
         self.labeled_connections = {}
         self.username = 'username'
-        self.access_key = 'password'
+        self.access_key = 'access_key'
         self.name_type = []
         self.timezone = ''
         self.controllers = {}
@@ -34,8 +44,8 @@ The connection returns in it's open state .
         try:
             self.run_setup()
             inf = float("inf")
-            controllers = threading.Thread(target=self.speak_to, args=([inf]))
-            monitors = threading.Thread(target=self.listen_to, args=(['',inf]))
+            controllers = threading.Thread(target=self.talk_to_controllers, args=(['',inf]))
+            monitors = threading.Thread(target=self.read_monitors_to_json, args=([inf]))
             controllers.daemon = True
             monitors.daemon = True
             controllers.start()
@@ -43,9 +53,13 @@ The connection returns in it's open state .
         except:
             controllers.join()
             monitors.join()
+    def delete(self):
+        answer = raw_input("are you sure you want to do that? Answer 'yes' or 'no'")
+        if answer == 'yes':
+            del self
 
     def pickup_conn(self):
-        serial_paths = self._serial_ports()
+        serial_paths = _serial_ports()
         for port in serial_paths:
             connection = serial.serial_for_url(port, timeout = 5)
             # connection_wrapper = io.TextIOWrapper(io.BufferedRWPair(connection,connection))
@@ -137,19 +151,25 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
             answer = int(raw_input('How many devices? (1-n): '))
             print "Unplug the devices now to continue..."
             starting = num_devices - answer
-            if len(self._serial_ports()) > 0:
-                while len(self._serial_ports()) > (starting):
+            if len(_serial_ports()) > 0:
+                while len(_serial_ports()) > (starting):
                     time.sleep(1)
             current_number = 1
             for index in xrange(answer):
                 print "Now enter device {}...".format(current_number)
                 # print len(self.serial_connections)
                 # print (starting + current_number)
-                while len(self._serial_ports()) < current_number:
+                while len(_serial_ports()) < current_number:
                     time.sleep(1)
                 name = raw_input("What would you like to call device {}?: ".format(current_number))
                 sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
                 baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+                username = raw_input("What is the account username for this device: ")
+                self.devices
+                answer = raw_input("What is the access key?: ")
+                self.access_key = answer
+                answer = raw_input("What is your current timezone?: ")
+                self.timezone = answer
                 self.name_type.append((str(name), str(sensor_type)))
                 last_device_connected = self.pickup_conn()[-1]
                 last_device_connected.baud_rate = baud_rate
@@ -159,18 +179,13 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     self.monitors[name] = last_device_connected
                 self.labeled_connections[name] = last_device_connected
                 current_number += 1
-            answer = raw_input("What is the account username for these objects online: ")
-            self.username = answer
-            answer = raw_input("What is the access key?: ")
-            self.access_key = answer
-            answer = raw_input("What is your current timezone?: ")
-            self.timezone = answer
+                
             return self.labeled_connections
 
     def PiClient_request(self):
         pass
 
-    def special_json(self, name, port, timeout = 3):
+    def special_json(self, name, port, empty_read_limit = 10):
             if port.readable():
                 ### VAL acts as a token to know whether the next bytes string is a key or value in the serialized form###
                 VAL = True
@@ -183,7 +198,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 reading = True
                 status = True
                 empty_read_count = 0
-                empty_read_limit = 10
+                
                 while reading and empty_read_count <= empty_read_limit:
                     current_key = ''
                     current_value = ''
@@ -217,22 +232,20 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     contents['user'] = self.username
                     contents['access_key'] = self.access_key
                     contents['device_type'] = 'monitor'
-                    return json.dumps(data_thread, sort_keys = True)
-
-
-    def _serial_ports(self):
-        """Lists serial ports
-        :raises EnvironmentError:
-        On unsupported or unknown platforms
-        :returns:
-        A list of available serial ports
-        """
-        if sys.platform.startswith('win'):
-            ports = ['COM' + str(i + 1) for i in range(256)]
-        elif sys.platform.startswith('linux') or sys.platform.startswith('linux2') or sys.platform.startswith('cygwin'):
-            ports = glob.glob('/dev/ttyACM*')
-        elif sys.platform.startswith('darwin'):
-            ports = glob.glob('/dev/tty.usbmodem*')
-        else:
-            raise EnvironmentError('Unsupported platform')
-        return ports
+                    return json.dumps(contents, sort_keys = True)
+def _serial_ports():
+    """Lists serial ports
+    :raises EnvironmentError:
+    On unsupported or unknown platforms
+    :returns:
+    A list of available serial ports
+    """
+    if sys.platform.startswith('win'):
+        ports = ['COM' + str(i + 1) for i in range(256)]
+    elif sys.platform.startswith('linux') or sys.platform.startswith('linux2') or sys.platform.startswith('cygwin'):
+        ports = glob.glob('/dev/ttyACM*')
+    elif sys.platform.startswith('darwin'):
+        ports = glob.glob('/dev/tty.usbmodem*')
+    else:
+        raise EnvironmentError('Unsupported platform')
+    return ports
