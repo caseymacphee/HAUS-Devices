@@ -7,13 +7,12 @@ import glob
 
 def wrap_init_with_lock(org_init):
     def wrapped_init(self, *args, **kwargs):
-       org_init(self, *args, **kwargs)
-       ports = _serial_ports()
-       serial_locks = {}
-       for serial in ports:
+        org_init(self, *args, **kwargs)
+        ports = _serial_ports()
+        serial_locks = {}
+        for serial in ports:
             serial_locks[serial] = Lock()
-            serial_locks.append(serial_locks)
-       self._auto_locks_for_ports = serial_locks
+        self._auto_locks = serial_locks
     return wrapped_init
 
 def _serial_ports():

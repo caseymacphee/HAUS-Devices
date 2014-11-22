@@ -15,6 +15,8 @@ import json
 import threading
 from threading import Lock
 from synchronize import Allocate_port_locks
+
+
 class Boards(object):
     """
 This function is the working head for Raphi. Currently processes based on regular expressesions of the
@@ -28,22 +30,28 @@ The connection returns in it's open state .
         if(len(self._instances) >= 1):
             make_room = raw_input("make room for the new object by deleting the last? type 'yes' or 'no'\n: ")
             if make_room == 'yes':
-                self.delete_old(self._instance.pop()) #kill the oldest instance
+                self.delete_old(self._instances.pop()) #kill the oldest instance
+                self._instances.append(self)
+                ports = _serial_ports()
+                serial_locks = {}
+                for serial_path in ports:
+                    serial_locks[serial_path] = Lock()
+                
+                self._auto_locks = serial_locks
+                self.device_locks = {}
+                self.named_connections = {}
+                self.controllers = {}
+                self.monitors = {}
+                self.device_metadata = {}
+                ### for testing go straight to setup ###
+                ##note that seria_connections is the only ordered list ##
+                self.serial_connections = []
+                
+                self.run_setup()
             else:
                 ## delete the instance if the user wants to keep the old one
                 del self
-        else:
-            self._instances.append(self)
-        self.device_locks = {}
-        self.serial_connections = []
-        self.named_connections = {}
-        ###########################################all meta data should be acquired uppon receipt of a name should be converted to a list
-        self.name_type = []
-        self.controllers = {}
-        self.monitors = {}
-        self.device_metadata = {}
-        ### for testing go straight to setup ###
-        self.run_setup()
+            
     
     def serve_forever(self):
         try:
@@ -82,19 +90,19 @@ The connection returns in it's open state .
         ### listening for 30 second timeout for testing ###
         start = time.time()
         current_time = start
-        for port in self.monitors.itervalues():
-            if not port.isOpen():
-                port.open()
         while current_time - start < timeout:
             for name, port in self.monitors.iteritems():
                 ### Your logic goes here ###
+                port_lock =  self.device_locks[name]
+                port_lock.acquire()
+                if not port.isOpen():
+                    port.open()
                 message = port.readline()
                 jsonmessage = self.build_json(message, name)
                 print jsonmessage
+                port.close()
+                port_lock.release()
             current_time = time.time()
-        for device in self.monitors.itervalues():
-            if device.isOpen:
-                device.close()
 
     def talk_to_controllers(self, message = '', timeout = 360):
         start = time.time()
@@ -137,11 +145,11 @@ The connection returns in it's open state .
         for pair in key_val_pairs:
             key, val = pair.split('=')
             data_thread[key] = val
-        ########################################### issue changing to data thread to read from the device meta-data dictionary 
-        # data_thread['name'] = name
-        # data_thread['user'] = self.username
-        # data_thread['access_key'] = self.access_key
-        # data_thread['device_type'] = 'monitor'
+        meta_data = self.device_metadata['name']
+        data_thread['name'] = meta_data['name']
+        data_thread['user'] = meta_data['user']
+        data_thread['access_key'] = meta_data['access_key']
+        data_thread['device_type'] = meta_data['device_type']
         return json.dumps(data_thread, sort_keys = True)
 
     def run_setup(self, group_mode = False):
@@ -157,7 +165,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
             pass
         if answer == 'c' or answer == 'continue':
             answer = int(raw_input('How many devices? (1-n): '))
-            print "Unplug the + now to continue..."
+            print "Unplug them now to continue..."
             starting = num_devices - answer
             if len(_serial_ports()) > 0:
                 while len(_serial_ports()) > (starting):
@@ -166,19 +174,25 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
             name = 'username'
             sensor_type = 'monitor'
             baud_rate = '9600'
-            username = 'algae'
+            username = 'username'
             device_timezone = 'America/LosAngeles'
 
+            device_meta_data = ('name', 'sensor_type', 'baud_rate', 'username', 'access_key', 'device_timezone')
+            device_data = []
             if group_mode == False:
-                    name = raw_input("What would you like to call device {}?: ".format(current_number))
-                    sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
-                    baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
-                    username = raw_input("What is the account username for this device: ")
-                    access_key = raw_input("What is the access key?: ")
-                    device_timezone = raw_input("What is your current timezone?: ")
-            
-            # device_meta_data = ('name', 'sensor_type', 'baud_rate', 'username', 'access_key', 'device_timezone')
-            
+                name = raw_input("What would you like to call device {}?: ".format(current_number))
+                sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
+                baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+                username = raw_input("What is the account username for this device: ")
+                access_key = raw_input("What is the access key?: ")
+                device_timezone = raw_input("What is your current timezone?: ")
+                device_data.append(name)
+                device_data.append(sensor_type)
+                device_data.append(baud_rate)
+                device_data.append(username)
+                device_data.append(access_key)
+                device_data.append(device_timezone)
+ 
             for index in xrange(answer):
                 print "Now enter device {}...".format(current_number)
                 # print len(self.serial_connections)
@@ -186,6 +200,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 current_ports = _serial_ports()
                 while len(current_ports) < current_number:
                     time.sleep(1)
+                metadata = {}
                 if group_mode == True:
                     name = raw_input("What would you like to call device {}?: ".format(current_number))
                     sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
@@ -193,10 +208,17 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     username = raw_input("What is the account username for this device: ")
                     access_key = raw_input("What is the access key?: ")
                     device_timezone = raw_input("What is your current timezone?: ")
-                
+                    device_data.append(name)
+                    device_data.append(sensor_type)
+                    device_data.append(baud_rate)
+                    device_data.append(username)
+                    device_data.append(access_key)
+                    device_data.append(device_timezone)
 
-                self.device_locks[name] = self._
-                self.name_type.append((str(name), str(sensor_type)))
+                metadata = dict(zip(device_meta_data, device_data))
+                self.device_metadata[name] = metadata
+                last_port = _serial_ports().pop()
+                self.device_locks[name] = self._auto_locks[last_port]
                 last_device_connected = self.pickup_conn()[-1]
                 last_device_connected.baud_rate = baud_rate
                 if sensor_type == 'controller':
@@ -218,6 +240,8 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 # The start of line for this test is the '$' for username, and the EOL is '#' #
                 VAL = True
                 contents = {}
+                port_lock = self.device_locks[name]
+                port_lock.acquire
                 if not port.isOpen():
                     port.open()
                 current = port.read()
@@ -253,15 +277,15 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                             current_value = current_value + current_char_in
                         else:
                             current_key = current_key + current_char_in
-
+                port_lock.release()
                 print "Read status: ", status
                 if empty_read_count <= empty_read_limit:
-                    ###########################################needs work, we should be getting it from the meta dictionary which holds dictionaries of metadata"""
+                    metadata = self.device_metadata[name]
+                    contents['name'] = metadata['name']
+                    contents['user'] = metadata['user']
+                    contents['access_key'] = metadata['access_key']
+                    contents['device_type'] = metadata['device_type']
 
-                    contents['name'] = name
-                    contents['user'] = self.username
-                    contents['access_key'] = self.access_key
-                    contents['device_type'] = 'monitor'
                     return json.dumps(contents, sort_keys = True)
 
 def _serial_ports():
