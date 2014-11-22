@@ -8,7 +8,7 @@ import glob
 def wrap_init_with_lock(org_init):
     def wrapped_init(self, *args, **kwargs):
        org_init(self, *args, **kwargs)
-       ports = devices._serial_ports()
+       ports = _serial_ports()
        serial_locks = {}
        for serial in ports:
             serial_locks[serial] = Lock()

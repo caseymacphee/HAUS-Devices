@@ -2,6 +2,10 @@
 ### Home Automation User Services ###
 ###### Configured to be run on Debian-Wheezy BST 2014 armv6l GNU/Linux ######
 ###########/dev/ttyACM*#######
+
+#### All of this code is currently under construction and is free under the gnu free software license #####
+###**for the sake of protecting the rights of the author**###
+
 import serial
 import io
 import sys
@@ -14,29 +18,30 @@ from synchronize import Allocate_port_locks
 class Boards(object):
     """
 This function is the working head for Raphi. Currently processes based on regular expressesions of the
- /dev/yourarduinousbserialpathhere (\from the scanportsmodule).
+ /dev/yourarduinousbserialpathhere (from the scanportsmodule).
 Returns a string with the serials that fit that specification in the form of a list of tuples (connection first, test buffer last).
 The connection returns in it's open state .
     """
     __metaclass__ = Allocate_port_locks
     _instances=[]
     def __init__(self):
-        _instances=[]
-        if(len(self._instances) > 1):
-            self._instances.pop(1).kill() #kill the oldest instance
+        if(len(self._instances) >= 1):
+            make_room = raw_input("make room for the new object by deleting the last? type 'yes' or 'no'\n: ")
+            if make_room == 'yes':
+                self.delete_old(self._instance.pop()) #kill the oldest instance
+            else:
+                ## delete the instance if the user wants to keep the old one
+                del self
         else:
             self._instances.append(self)
-
-        self.devices
+        self.device_locks = {}
         self.serial_connections = []
-        self.labeled_connections = {}
-        self.username = 'username'
-        self.access_key = 'access_key'
+        self.named_connections = {}
+        ###########################################all meta data should be acquired uppon receipt of a name should be converted to a list
         self.name_type = []
-        self.timezone = ''
         self.controllers = {}
         self.monitors = {}
-
+        self.device_metadata = {}
         ### for testing go straight to setup ###
         self.run_setup()
     
@@ -44,6 +49,7 @@ The connection returns in it's open state .
         try:
             self.run_setup()
             inf = float("inf")
+
             controllers = threading.Thread(target=self.talk_to_controllers, args=(['',inf]))
             monitors = threading.Thread(target=self.read_monitors_to_json, args=([inf]))
             controllers.daemon = True
@@ -53,10 +59,11 @@ The connection returns in it's open state .
         except:
             controllers.join()
             monitors.join()
-    def delete(self):
-        answer = raw_input("are you sure you want to do that? Answer 'yes' or 'no'")
+
+    def delete_old(self, other):
+        answer = raw_input("are you sure you want to delete this schema? Answer 'yes' or 'no'")
         if answer == 'yes':
-            del self
+            del other
 
     def pickup_conn(self):
         serial_paths = _serial_ports()
@@ -129,14 +136,15 @@ The connection returns in it's open state .
         key_val_pairs = message.split(',')
         for pair in key_val_pairs:
             key, val = pair.split('=')
-            data_thread[key] = val 
-        data_thread['name'] = name
-        data_thread['user'] = self.username
-        data_thread['access_key'] = self.access_key
-        data_thread['device_type'] = 'monitor'
+            data_thread[key] = val
+        ########################################### issue changing to data thread to read from the device meta-data dictionary 
+        # data_thread['name'] = name
+        # data_thread['user'] = self.username
+        # data_thread['access_key'] = self.access_key
+        # data_thread['device_type'] = 'monitor'
         return json.dumps(data_thread, sort_keys = True)
 
-    def run_setup(self):
+    def run_setup(self, group_mode = False):
         num_devices=len(self.pickup_conn())
         setup_instructions = """
 There are {} ports available.
@@ -149,27 +157,45 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
             pass
         if answer == 'c' or answer == 'continue':
             answer = int(raw_input('How many devices? (1-n): '))
-            print "Unplug the devices now to continue..."
+            print "Unplug the + now to continue..."
             starting = num_devices - answer
             if len(_serial_ports()) > 0:
                 while len(_serial_ports()) > (starting):
                     time.sleep(1)
             current_number = 1
+            name = 'username'
+            sensor_type = 'monitor'
+            baud_rate = '9600'
+            username = 'algae'
+            device_timezone = 'America/LosAngeles'
+
+            if group_mode == False:
+                    name = raw_input("What would you like to call device {}?: ".format(current_number))
+                    sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
+                    baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+                    username = raw_input("What is the account username for this device: ")
+                    access_key = raw_input("What is the access key?: ")
+                    device_timezone = raw_input("What is your current timezone?: ")
+            
+            # device_meta_data = ('name', 'sensor_type', 'baud_rate', 'username', 'access_key', 'device_timezone')
+            
             for index in xrange(answer):
                 print "Now enter device {}...".format(current_number)
                 # print len(self.serial_connections)
                 # print (starting + current_number)
-                while len(_serial_ports()) < current_number:
+                current_ports = _serial_ports()
+                while len(current_ports) < current_number:
                     time.sleep(1)
-                name = raw_input("What would you like to call device {}?: ".format(current_number))
-                sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
-                baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
-                username = raw_input("What is the account username for this device: ")
-                self.devices
-                answer = raw_input("What is the access key?: ")
-                self.access_key = answer
-                answer = raw_input("What is your current timezone?: ")
-                self.timezone = answer
+                if group_mode == True:
+                    name = raw_input("What would you like to call device {}?: ".format(current_number))
+                    sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
+                    baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+                    username = raw_input("What is the account username for this device: ")
+                    access_key = raw_input("What is the access key?: ")
+                    device_timezone = raw_input("What is your current timezone?: ")
+                
+
+                self.device_locks[name] = self._
                 self.name_type.append((str(name), str(sensor_type)))
                 last_device_connected = self.pickup_conn()[-1]
                 last_device_connected.baud_rate = baud_rate
@@ -177,10 +203,10 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     self.controllers[name] = last_device_connected
                 elif sensor_type == 'monitor':
                     self.monitors[name] = last_device_connected
-                self.labeled_connections[name] = last_device_connected
+                self.named_connections[name] = last_device_connected
                 current_number += 1
                 
-            return self.labeled_connections
+            return self.named_connections
 
     def PiClient_request(self):
         pass
@@ -228,13 +254,16 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                         else:
                             current_key = current_key + current_char_in
 
-                print "Read status: ",status
-                if empty_read_count<= empty_read_limit:
+                print "Read status: ", status
+                if empty_read_count <= empty_read_limit:
+                    ###########################################needs work, we should be getting it from the meta dictionary which holds dictionaries of metadata"""
+
                     contents['name'] = name
                     contents['user'] = self.username
                     contents['access_key'] = self.access_key
                     contents['device_type'] = 'monitor'
                     return json.dumps(contents, sort_keys = True)
+
 def _serial_ports():
     """Lists serial ports
     :raises EnvironmentError:
