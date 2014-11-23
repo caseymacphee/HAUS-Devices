@@ -1,10 +1,7 @@
-### Python package for the open source RPi-HAUS module ###
-### Home Automation User Services ###
+### Python module for the open source RPi-HAUS application ###
+### HAUS ###
 ###### Configured to be run on Debian-Wheezy BST 2014 armv6l GNU/Linux ######
 ###########/dev/ttyACM*#######
-
-#### All of this code is currently under construction and is free under the gnu free software license #####
-###**for the sake of protecting the rights of the author**###
 
 import serial
 import io
@@ -24,40 +21,27 @@ This function is the working head for Raphi. Currently processes based on regula
 Returns a string with the serials that fit that specification in the form of a list of tuples (connection first, test buffer last).
 The connection returns in it's open state .
     """
-    __metaclass__ = Allocate_port_locks
+    # __metaclass__ = Allocate_port_locks
     _instances=[]
+    serial_locks = {}
+
     def __init__(self):
-        if(len(self._instances) >= 1):
-            make_room = raw_input("make room for the new object by deleting the last? type 'yes' or 'no'\n: ")
-            if make_room == 'yes':
-                self.delete_old(self._instances.pop()) #kill the oldest instance
-                self._instances.append(self)
-                ports = _serial_ports()
-                serial_locks = {}
-                for serial_path in ports:
-                    serial_locks[serial_path] = Lock()
-                
-                self._auto_locks = serial_locks
-                self.device_locks = {}
-                self.named_connections = {}
-                self.controllers = {}
-                self.monitors = {}
-                self.device_metadata = {}
-                ### for testing go straight to setup ###
-                ##note that seria_connections is the only ordered list ##
-                self.serial_connections = []
-                
-                self.run_setup()
-            else:
-                ## delete the instance if the user wants to keep the old one
-                del self
-            
-    
+        self._instances.append(self)
+        ports = _serial_ports()
+        for serial_path in ports:
+            self.serial_locks[serial_path] = Lock()
+        self.device_locks = {}
+        self.named_connections = {}
+        self.controllers = {}
+        self.monitors = {}
+        self.device_metadata = {}
+        self.serial_paths = []
+        self.run_setup()
+
     def serve_forever(self):
         try:
             self.run_setup()
             inf = float("inf")
-
             controllers = threading.Thread(target=self.talk_to_controllers, args=(['',inf]))
             monitors = threading.Thread(target=self.read_monitors_to_json, args=([inf]))
             controllers.daemon = True
@@ -68,20 +52,17 @@ The connection returns in it's open state .
             controllers.join()
             monitors.join()
 
-    def delete_old(self, other):
-        answer = raw_input("are you sure you want to delete this schema? Answer 'yes' or 'no'")
-        if answer == 'yes':
-            del other
-
     def pickup_conn(self):
         serial_paths = _serial_ports()
+        serial_list = []
         for port in serial_paths:
             connection = serial.serial_for_url(port, timeout = 5)
             # connection_wrapper = io.TextIOWrapper(io.BufferedRWPair(connection,connection))
             if connection.isOpen():
                 connection.close()
-            self.serial_connections.append(connection)
-        return self.serial_connections
+            serial_list.append(connection)
+        self.serial_paths = serial_list
+        return serial_list 
 
     def test_ports(self):
         pass
@@ -113,6 +94,8 @@ The connection returns in it's open state .
         while current_time - start < timeout:
             for name, port in self.controllers.iteritems():
                 ### Your logic goes here ###
+                port_lock =  self.device_locks[name]
+                port_lock.acquire()
                 if name == 'zor':
                     response = port.readline()
                     response = self.build_json(response, name)
@@ -133,6 +116,7 @@ The connection returns in it's open state .
                     response = port.readline()
                     jsonmessage = self.build_json(response, name)
                     print jsonmessage
+                port_lock.release()
             current_time = time.time()
         for device in self.controllers.itervalues():
             if device.isOpen:
@@ -174,6 +158,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
             name = 'username'
             sensor_type = 'monitor'
             baud_rate = '9600'
+            username = 'username'    
             username = 'username'
             device_timezone = 'America/LosAngeles'
 
@@ -195,7 +180,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
  
             for index in xrange(answer):
                 print "Now enter device {}...".format(current_number)
-                # print len(self.serial_connections)
+                # print len(self.serial_paths)
                 # print (starting + current_number)
                 current_ports = _serial_ports()
                 while len(current_ports) < current_number:
@@ -218,7 +203,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 metadata = dict(zip(device_meta_data, device_data))
                 self.device_metadata[name] = metadata
                 last_port = _serial_ports().pop()
-                self.device_locks[name] = self._auto_locks[last_port]
+                self.device_locks[name] = self.serial_locks[last_port]
                 last_device_connected = self.pickup_conn()[-1]
                 last_device_connected.baud_rate = baud_rate
                 if sensor_type == 'controller':
@@ -227,10 +212,12 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     self.monitors[name] = last_device_connected
                 self.named_connections[name] = last_device_connected
                 current_number += 1
-                
-            return self.named_connections
+            current_connections = self.named_connections
+            return current_connections
 
-    def PiClient_request(self):
+    def haus_api_put(self):
+        pass
+    def haus_api_get(self):
         pass
 
     def special_json(self, name, port, empty_read_limit = 10):
@@ -300,7 +287,8 @@ def _serial_ports():
     elif sys.platform.startswith('linux') or sys.platform.startswith('linux2') or sys.platform.startswith('cygwin'):
         ports = glob.glob('/dev/ttyACM*')
     elif sys.platform.startswith('darwin'):
-        ports = glob.glob('/dev/tty.usbmodem*')
+        ### the second glob is for the xbee
+        ports = glob.glob('/dev/tty.usbmodem*') + glob.glob('/dev/tty.usbserial*')
     else:
         raise EnvironmentError('Unsupported platform')
     return ports
