@@ -10,7 +10,7 @@ def mainprompt(devices):
         pass
     elif response == 'operate controllers':
         pass
-    elif response == 'steam monitors':
+    elif response == 'stream monitors':
         pass
 
 def main():
