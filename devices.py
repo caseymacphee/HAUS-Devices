@@ -3,7 +3,6 @@
 ###### Configured to be run on Debian-Wheezy BST 2014 armv6l GNU/Linux ######
 ###########/dev/ttyACM*#######
 
-import serial
 import io
 import sys
 import glob
@@ -11,7 +10,6 @@ import time
 import json
 import threading
 from threading import Lock
-from synchronize import Allocate_port_locks
 
 
 class Boards(object):
@@ -21,7 +19,6 @@ This function is the working head for Raphi. Currently processes based on regula
 Returns a string with the serials that fit that specification in the form of a list of tuples (connection first, test buffer last).
 The connection returns in it's open state .
     """
-    # __metaclass__ = Allocate_port_locks
     _instances=[]
     serial_locks = {}
 
@@ -36,7 +33,6 @@ The connection returns in it's open state .
         self.monitors = {}
         self.device_metadata = {}
         self.serial_paths = []
-        self.run_setup()
 
     def serve_forever(self):
         try:
@@ -186,19 +182,6 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 while len(current_ports) < current_number:
                     time.sleep(1)
                 metadata = {}
-                # if group_mode == True:
-                #     name = raw_input("What would you like to call device {}?: ".format(current_number))
-                #     sensor_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
-                #     baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
-                #     username = raw_input("What is the account username for this device: ")
-                #     access_key = raw_input("What is the access key?: ")
-                #     device_timezone = raw_input("What is your current timezone?: ")
-                #     device_data.append(name)
-                #     device_data.append(sensor_type)
-                #     device_data.append(baud_rate)
-                #     device_data.append(username)
-                #     device_data.append(access_key)
-                #     device_data.append(device_timezone)
 
                 metadata = dict(zip(device_meta_data, device_data))
                 self.device_metadata[name] = metadata
