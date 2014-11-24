@@ -9,6 +9,7 @@ import glob
 import time
 import json
 import threading
+import serial
 from threading import Lock
 
 
