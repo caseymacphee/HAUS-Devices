@@ -12,7 +12,7 @@ import serial
 from threading import Lock
 
 
-class Boards(object):
+class User(object):
     """
 This function is the working head for Raphi. Currently processes based on regular expressesions of the
  /dev/yourarduinousbserialpathhere (from the scanportsmodule).
@@ -247,7 +247,7 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
         status = True
         empty_read_count = 0
 
-        while reading and empty_read_count <= empty_read_limit:
+        while reading:
             current_key = ''
             current_value = ''
             current_char_in = port.read()
@@ -283,15 +283,15 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
         print port_lock.locked()
         port_lock.release()
         print "Read status: ", status
-        if empty_read_count <= empty_read_limit:
-            meta_data = self.device_metadata[name]
-            contents['device_name'] = meta_data['device_name']
-            contents['username'] = meta_data['username']
-            contents['access_key'] = meta_data['access_key']
-            contents['device_type'] = meta_data['device_type']
-            contents['timezone'] = meta_data['timezone']
-            contents['timestamp'] = time.time()
-            return json.dumps(contents, sort_keys = True)
+        # if empty_read_count <= empty_read_limit:
+        meta_data = self.device_metadata[name]
+        contents['device_name'] = meta_data['device_name']
+        contents['username'] = meta_data['username']
+        contents['access_key'] = meta_data['access_key']
+        contents['device_type'] = meta_data['device_type']
+        contents['timezone'] = meta_data['timezone']
+        contents['timestamp'] = time.time()
+        return json.dumps(contents, sort_keys = True)
 
 def _serial_ports():
     """Lists serial ports
