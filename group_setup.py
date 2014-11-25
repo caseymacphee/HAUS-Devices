@@ -14,7 +14,7 @@ def mainprompt(devices):
         pass
 
 def main():
-    response = raw_input("Enter all the usb devices now, then hit enter...")
+    response = raw_input("Plug in all the usb devices now, then hit enter...")
     boards = devices.Boards()
     mainprompt(boards)
 
