@@ -94,48 +94,36 @@ The connection returns in it's open state .
                     print port_lock, 'released'
                 last_time = current_time
                 current_time = time.time()
+                print name,' took: ', int(current_time - last_time), 'seconds'
 
-    def talk_to_controllers(self, message = '', timeout = 360):
+    def talk_to_controller(self, name, port, message = ''):
+        jsonmessage = {}
         start = time.time()
         current_time = start
-        for port in self.controllers.itervalues():
-            if not port.isOpen():
-                port.open()
-        while current_time - start < timeout:
-            for name, port in self.controllers.iteritems():
-                ### Your logic goes here ###
-                port_lock =  self.device_locks[name]
-                port_lock.acquire()
-                if name == 'zor':
-                    response = port.readline()
-                    response = self._build_json(response, name)
-                    print response
-                    for relay in '1234':
-                        ## Simple test suite ##
-                        port.write(relay)
-                        response = port.readline()
-                        response = self._build_json(response, name)
-                        print response
-                        port.write(relay)
-                        response = port.readline()
-                        response = self._build_json(response, name)
-                        print response
-                        time.sleep(1)
-                else:
-                    port.write(response)
-                    response = port.readline()
-                    try:
-                        jsonmessage = self._build_json(response, name)
-                        print jsonmessage
-                    except:
-                        port_lock.release()
-                        if port.isOpen():
-                            port.close()
-                port_lock.release()
-            current_time = time.time()
-        for port in self.controllers.itervalues():
-            if port.isOpen:
-                port.close()
+        if not port.isOpen():
+            port.open()
+        ### Your logic goes here ###
+        port_lock = self.device_locks[name]
+        port_lock.acquire()
+        if port_lock.locked():
+            print port_lock,'acquired'
+        try:
+            while True:
+                port.write(message)
+                port.flush()
+                print port.readline()
+            jsonmessage = self.read_raw(name, port)
+        except:
+            print 'raised error'
+        port_lock.release()
+        if not port_lock.locked():
+            print port_lock, 'released'
+        last_time = current_time
+        current_time = time.time()
+        print 'method took :', int(current_time - last_time), ' seconds'
+        if port.isOpen:
+            port.close()
+        return jsonmessage
 
     def _build_json(self, message, device_name, delim = ',', key_val_split = '='):
         try:
@@ -149,6 +137,7 @@ The connection returns in it's open state .
             except:
                 return
             meta_data = self.device_metadata[device_name]
+            print meta_data
             data_thread['device_name'] = meta_data['device_name']
             data_thread['username'] = meta_data['username']
             data_thread['access_key'] = meta_data['access_key']
@@ -159,71 +148,7 @@ The connection returns in it's open state .
         except:
             return
 
-    def run_setup(self, group_mode = False):
-        setup_instructions = """
-There are {} ports available.
-If you would like to run through the device
-setup (which will require you unplugging your
-devices, and naming them one by one as they
-connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
-        answer = raw_input(setup_instructions)
-        if answer == 'q' or answer == 'quit':
-            pass
-        if answer == 'c' or answer == 'continue':
-            answer = raw_input('Plug all your devices in now to continue, then hit enter:')
-            num_devices = len(_serial_ports())
-            answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
-            username = raw_input("What is the account username for all your devices?: ")
-            access_key = raw_input("What is the access key?: ")
-            timezone = raw_input("What is your current timezone?: ")
-            print "Unplug them now to continue..."
-            ### Take number of devices connected initially and subtract devices to program ###
-            starting = num_devices - answer
-            while len(_serial_ports()) > (starting):
-                time.sleep(1)
-            device_meta_data_field_names = ('device_name', 'device_type', 'username', 'access_key', 'timezone', 'timestamp')
-            current_number = 1
-            for devices in xrange(answer):
-                current_ports = _serial_ports()
-                print "Now plug in device {}...".format(current_number)
-                while len(current_ports) < current_number + starting:
-                    time.sleep(1)
-                    current_ports = _serial_ports()
-                metadata = {}
-                device_name = raw_input("What would you like to call device {}?: ".format(current_number))
-                device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
-                baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
-                timestamp = 'timestamp'
-                device_data = []
-                device_data.append(device_name)
-                device_data.append(device_type)
-                device_data.append(username)
-                device_data.append(access_key)
-                device_data.append(timezone)
-                device_data.append(timestamp)
-                metadata = dict(zip(device_meta_data_field_names, device_data))
-                self.device_metadata[device_name] = metadata
-                last_port = current_ports.pop()
-                ### need logic here ###
-                try:
-                    self.device_locks[device_name] = self.serial_locks[last_port]
-                except KeyError:
-                    self.serial_locks[last_port] = Lock()
-                    self.device_locks[device_name] = self.serial_locks[last_port]
-                last_device_connected = self.pickup_conn()[-1]
-                if baud_rate != '':
-                    try:
-                        last_device_connected.baud_rate = int(baud_rate)
-                    except:
-                        raise Exception('Could not set that baud rate, check your input and try again.')
-                if device_type == 'controller':
-                    self.controllers[device_name] = last_device_connected
-                elif device_type == 'monitor':
-                    self.monitors[device_name] = last_device_connected
-                self.named_connections[device_name] = last_device_connected
-                current_number += 1
-            current_connections = self.named_connections
-            return current_connections
+    
 
     def haus_api_put(self):
         pass
@@ -231,40 +156,30 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
     def haus_api_get(self):
         pass
 
-    def raw_json(self, name, port, begin_of_line='$', end_of_line='#', delim=',', key_val_split = '=', empty_read_limit = 10):
+    def read_raw(self, name, port, begin_of_line='$', end_of_line='#', delim=',', key_val_split = '=', timeout = 60):
         #### Should change empty readline to a timeout method.
         ### Method broken! Byte read in is not comparable using =.
         ### VAL acts as a token to know whether the next bytes string is a key or value in the serialized form###
         ## based on continuos bytes with no newline return##
         # The start of line for this test is the '$' for username, and the EOL is '#' #
-        
-        if not port.readable():
-            return
-        VAL = False
-        contents = {}
-        port_lock = self.device_locks[name]
-        if port_lock.locked():
-            print "blocked..."
-        port_lock.acquire(True)
+        start_time = time.time()
         if not port.isOpen():
             port.open()
         current = port.read()
-        while current is not begin_of_line:
-            print current
+        while current != begin_of_line:
             current = port.read()
-        
+            if time.time() - start_time > timeout: return
+        VAL = False
+        contents = {}
         reading = True
         status = True
         empty_read_count = 0
+        current_key = ''
+        current_value = ''
         try:
             while reading:
-                current_key = ''
-                current_value = ''
                 current_char_in = port.read()
-                
-                current_char_in = current_char_in.decode("utf-8")
-                print current_char_in
-                if current_char_in == u'':
+                if current_char_in == '':
                     status = False
                     empty_read_count += 1
                 elif current_char_in == end_of_line:
@@ -275,23 +190,21 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                 elif current_char_in == delim:
                     ## There is a new set of key value pairs ##
                     contents[current_key] = current_value
-                    current_value = u''
-                    current_key = u''
+                    current_value = ''
+                    current_key = ''
                     status = True
-                elif current_char_in == u'=':
+                    VAL = not VAL
+                elif current_char_in == '=':
                     status = True
                     VAL = not VAL
                 else:
                     status = True
-                    print "current val" , current_value
-                    print "current key" , current_key
                     if VAL:
-                        current_value = current_value + current_char_in
+                        current_value += current_char_in
                     else:
-                        current_key = current_key + current_char_in
+                        current_key += current_char_in
         except:
             print "Didn't read"
-        port_lock.release()
         print "Read status: ", status
         # if empty_read_count <= empty_read_limit:
         meta_data = self.device_metadata[name]
@@ -301,8 +214,73 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
         contents['device_type'] = meta_data['device_type']
         contents['timezone'] = meta_data['timezone']
         contents['timestamp'] = time.time()
-        return json.dumps(contents, sort_keys = True)
+        return json.dumps(contents)
 
+    def run_setup(self, group_mode = False):
+            setup_instructions = """
+    There are {} ports available.
+    If you would like to run through the device
+    setup (which will require you unplugging your
+    devices, and naming them one by one as they
+    connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
+            answer = raw_input(setup_instructions)
+            if answer == 'q' or answer == 'quit':
+                pass
+            if answer == 'c' or answer == 'continue':
+                answer = raw_input('Plug all your devices in now to continue, then hit enter:')
+                num_devices = len(_serial_ports())
+                answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
+                username = raw_input("What is the account username for all your devices?: ")
+                access_key = raw_input("What is the access key?: ")
+                timezone = raw_input("What is your current timezone?: ")
+                print "Unplug them now to continue..."
+                ### Take number of devices connected initially and subtract devices to program ###
+                starting = num_devices - answer
+                while len(_serial_ports()) > (starting):
+                    time.sleep(1)
+                device_meta_data_field_names = ('device_name', 'device_type', 'username', 'access_key', 'timezone', 'timestamp')
+                current_number = 1
+                for devices in xrange(answer):
+                    current_ports = _serial_ports()
+                    print "Now plug in device {}...".format(current_number)
+                    while len(current_ports) < current_number + starting:
+                        time.sleep(1)
+                        current_ports = _serial_ports()
+                    metadata = {}
+                    device_name = raw_input("What would you like to call device {}?: ".format(current_number))
+                    device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
+                    baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+                    timestamp = 'timestamp'
+                    device_data = []
+                    device_data.append(device_name)
+                    device_data.append(device_type)
+                    device_data.append(username)
+                    device_data.append(access_key)
+                    device_data.append(timezone)
+                    device_data.append(timestamp)
+                    metadata = dict(zip(device_meta_data_field_names, device_data))
+                    self.device_metadata[device_name] = metadata
+                    last_port = current_ports.pop()
+                    ### need logic here ###
+                    try:
+                        self.device_locks[device_name] = self.serial_locks[last_port]
+                    except KeyError:
+                        self.serial_locks[last_port] = Lock()
+                        self.device_locks[device_name] = self.serial_locks[last_port]
+                    last_device_connected = self.pickup_conn()[-1]
+                    if baud_rate != '':
+                        try:
+                            last_device_connected.baud_rate = int(baud_rate)
+                        except:
+                            raise Exception('Could not set that baud rate, check your input and try again.')
+                    if device_type == 'controller':
+                        self.controllers[device_name] = last_device_connected
+                    elif device_type == 'monitor':
+                        self.monitors[device_name] = last_device_connected
+                    self.named_connections[device_name] = last_device_connected
+                    current_number += 1
+                current_connections = self.named_connections
+                return current_connections
 def _serial_ports():
     """Lists serial ports
     :raises EnvironmentError:
