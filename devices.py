@@ -89,7 +89,7 @@ The connection returns in it's open state .
                 jsonmessage = self._build_json(message, name)
                 print jsonmessage
                 payload = json.loads(jsonmessage)
-                requests.put('localhost:8000/devices/{device_id}'.format(device_id=self.device_metadata[name]['pk']) data=payload)
+                requests.put('localhost:8000/devices/{device_id}'.format(device_id=self.device_metadata[name]['device_id']), data=payload)
                 port.close()
                 port_lock.release()
                 if not port_lock.locked():
@@ -180,8 +180,8 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
             username = raw_input("What is the account username for all your devices?: ")
             password = raw_input("Enter your password: ")
             timezone = raw_input("What is your current timezone?: ")
-            self.session.auth = ('username', 'password')
-            response = session.get('http://localhost:8000/devices')
+            self.session.auth = (username, password)
+            response = self.session.get('http://localhost:8000/devices')
             print "Your known devices: %s" % response.content
             print "Unplug them now to continue..."
             ### Take number of devices connected initially and subtract devices to program ###
@@ -201,14 +201,15 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                 device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
                 baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
                 timestamp = 'timestamp'
-                payload = dict('name': device_name, 'device_type': device_type)
-                response = self.session.put('http://localhost:8000/devices', data=payload)
+                payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1}
+                response = self.session.post('http://localhost:8000/devices', data=payload)
                 response = json.loads(response.content)
+                print response
                 device_data = []
                 device_data.append(device_name)
                 device_data.append(device_type)
                 device_data.append(username)
-                device_data.append(response['pk'])
+                device_data.append(response['id'])
                 device_data.append(timezone)
                 device_data.append(timestamp)
                 #response = requests.put('http:/localhost:8000/devices/')
@@ -308,7 +309,7 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
         meta_data = self.device_metadata[name]
         contents['device_name'] = meta_data['device_name']
         contents['username'] = meta_data['username']
-        contents['device_id'] = meta_data['accesÏs_key']
+        contents['device_id'] = meta_data['device_id']
         contents['device_type'] = meta_data['device_type']
         contents['timezone'] = meta_data['timezone']
         contents['timestamp'] = time.time()
