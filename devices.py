@@ -39,16 +39,9 @@ The connection returns in it's open state .
 
     def stream_forever(self):
         try:
-            inf = float("inf")
-            # controllers = threading.Thread(target=self.talk_to_controllers, args=(['',inf]))
-            monitors = threading.Thread(target=self.read_monitors_to_json, args=([inf]))
-            # controllers.daemon = True
-            monitors.daemon = True
-            # controllers.start()
-            monitors.start()
+            pass
         except:
-            # controllers.join()
-            monitors.join()
+            pass
 
     def pickup_conn(self):
         serial_paths = _serial_ports()
@@ -65,33 +58,28 @@ The connection returns in it's open state .
     def test_ports(self):
         pass
 
-    def read_monitors_to_json(self, timeout = 30):
+    def read_monitors_to_json(self, name, port, timeout = 30):
         ### listening for 30 second timeout for testing ###
         ### if you think your monitors are running slow, check for delays in your arduino sketch ###
         start = time.time()
         current_time = start
 
         while current_time - start < timeout:
-            for name, port in self.monitors.iteritems():
-                port_lock = self.device_locks[name]
-
-                # if port_lock.locked:
-                #     print 'locked'
-                port_lock.acquire()
-                if port_lock.locked():
-                    print port_lock,' acquired'
-                if not port.isOpen():
-                    port.open()
-                jsonmessage = self.read_raw(name, port)
-                print jsonmessage
-                self._send_to_server(jsonmessage)
-                port.close()
-                port_lock.release()
-                if not port_lock.locked():
-                    print port_lock, 'released'
-                last_time = current_time
-                current_time = time.time()
-                print name,' took: ', int(current_time - last_time), 'seconds'
+            port_lock = self.device_locks[name]
+            port_lock.acquire()
+            if port_lock.locked():
+                print port_lock,' acquired'
+            if not port.isOpen():
+                port.open()
+            jsonmessage = self.read_raw(name, port)
+            print jsonmessage
+            self._send_to_server(jsonmessage)
+            port_lock.release()
+            if not port_lock.locked():
+                print port_lock, 'released'
+            last_time = current_time
+            current_time = time.time()
+            print name,' took: ', int(current_time - last_time), 'seconds'
 
     def _send_to_server(self, jsonmessage):
         self.send_attempt_number += 1
@@ -101,21 +89,11 @@ The connection returns in it's open state .
         print "Here is where I'd put the following data: "
         print payload
 
-    def talk_to_controller(self, name, port, target, message = '1'):
-        """
-Use method like this:
-for name, port in me.controllers.iteritems():
-    me.talk_to_controller(name, port, 'Relay1', '1')
-        """
-
-        jsonmessage = None
-        start = time.time()
-        current_time = start
+    def ping_controller_atoms(self, name, port):
         if not port.isOpen():
             port.open()
         port_lock = self.device_locks[name]
         port_lock.acquire()
-
         if port_lock.locked():
             print port_lock,'acquired'
             try:
@@ -124,8 +102,50 @@ for name, port in me.controllers.iteritems():
                 assert response == 'Okay'
             except:
                 raise Exception("Arduino didn't wake up.")
-        port.write(message)
-        # self.read_raw(name, port)
+        port.write('$')
+        jsonmessage = self.read_raw(name, port)
+        port.close()
+        port_lock.release()
+        if not port_lock.locked():
+            print port_lock, 'released'
+        return jsonmessage
+
+    def talk_to_controller(self, state):
+        """
+Use method like this:
+for name, port in me.controllers.iteritems():
+    me.talk_to_controller(name, port, 'Relay1', '1')
+
+Relay's must have an '@' before them.
+        """
+        name = state['device_name']
+        port = self.named_connections[name]
+
+        start = time.time()
+        current_time = start
+        jsonmessage = None
+        if not port.isOpen():
+            port.open()
+        port_lock = self.device_locks[name]
+        port_lock.acquire()
+        if port_lock.locked():
+            print port_lock,'acquired'
+            try:
+                response = port.write('Okay')
+                response = port.readline()
+                assert response == 'Okay'
+            except:
+                raise Exception("Arduino didn't wake up.")
+        atoms = state['atoms']
+        for key, val in atoms.iteritems():
+            if key[0] == '@':
+                switch_name, switch_number = key.split('_')
+                if val == '1' or val == 1:
+                    print switch_number
+                    print type(switch_number)
+                    port.write(str(switch_number))
+                    self.read_raw(name, port)
+
         port.write('$')
         jsonmessage = self.read_raw(name, port)
         port.close()
@@ -140,23 +160,27 @@ for name, port in me.controllers.iteritems():
     def _build_json(self, name, message, delim = ',', key_val_split = '='):
         try:
             message = message.rstrip()
-            data_thread = {}
+            contents = {}
+            atoms = {}
             key_val_pairs = message.split(delim)
             for pair in key_val_pairs:
                 try:
                     key, val = pair.split(key_val_split)
-                    data_thread[key] = val
+                    atoms[key] = val
                 except:
                     print 'got exception, pair is:', pair
                     return None
             meta_data = self.device_metadata[name]
-            data_thread['device_name'] = meta_data['device_name']
-            data_thread['username'] = meta_data['username']
-            data_thread['device_id'] = meta_data['device_id']
-            data_thread['device_type'] = meta_data['device_type']
-            data_thread['timezone'] = meta_data['timezone']
-            data_thread['timestamp'] = time.time()
-            return json.dumps(data_thread)
+            current_time = time.time()
+            self.device_metadata['timestamp'] = current_time
+            contents['device_name'] = meta_data['device_name']
+            contents['username'] = meta_data['username']
+            contents['device_id'] = meta_data['device_id']
+            contents['device_type'] = meta_data['device_type']
+            contents['timezone'] = meta_data['timezone']
+            contents['timestamp'] = current_time
+            contents['atoms'] = atoms
+            return json.dumps(contents)
         except:
             raise
 
@@ -180,6 +204,7 @@ for name, port in me.controllers.iteritems():
             current = port.read()
             if time.time() - start_time > timeout: return
         VAL = False
+        atoms = {}
         contents = {}
         reading = True
         status = True
@@ -196,10 +221,10 @@ for name, port in me.controllers.iteritems():
                     ## IE we are getting data but end of line ##
                     status = True
                     reading = False
-                    contents[current_key] = current_value
+                    atoms[current_key] = current_value
                 elif current_char_in == delim:
                     ## There is a new set of key value pairs ##
-                    contents[current_key] = current_value
+                    atoms[current_key] = current_value
                     current_value = ''
                     current_key = ''
                     status = True
@@ -224,6 +249,7 @@ for name, port in me.controllers.iteritems():
         contents['device_type'] = meta_data['device_type']
         contents['timezone'] = meta_data['timezone']
         contents['timestamp'] = time.time()
+        contents['atoms'] = atoms
         return json.dumps(contents)
 
     def run_setup(self, group_mode = False):
@@ -325,8 +351,3 @@ def _serial_ports():
     else:
         raise EnvironmentError('Unsupported platform')
     return ports
-
-if __name__ == '__main__':
-    import devices
-    charlie = devices.User()
-    charlie.run_setup()
