@@ -107,24 +107,23 @@ The connection returns in it's open state .
             name_time = now_time
 
     def ping_controller_atoms(self, name, port):
-        if not port.isOpen():
-            port.open()
         port_lock = self.device_locks[name]
-        port_lock.acquire()
-        if port_lock.locked():
-            print port_lock,'acquired'
+
+        with port_lock:
+            self._ensure_port_is_open(port)
             try:
                 response = port.write('Okay')
                 response = port.readline()
-                assert response == 'Okay'
+                if response[0] != 'O':
+                    if response != 'Okay':
+                        raise Exception("Controller is not Okay")
             except:
-                raise Exception("Arduino didn't wake up.")
-        port.write('$')
-        jsonmessage = self.read_raw(name, port)
-        port.close()
-        port_lock.release()
-        if not port_lock.locked():
-            print port_lock, 'released'
+                raise Exception("Controller didn't wake up.")
+            port.write('$')
+            jsonmessage = self.read_raw(name, port)
+            if post.isOpen():
+                port.close()
+
         return jsonmessage
 
     def talk_to_controller(self, state):
@@ -138,13 +137,12 @@ Relay's must have an '@' before them.
         name = state['device_name']
         port = self.named_connections[name]
 
-        start_time = time.time()
-
         jsonmessage = None
+        start_time = time.time()
 
         port_lock = self.device_locks[name]
         with port_lock:
-            self._ensure_port_is_open()
+            self._ensure_port_is_open(port)
             try:
                 response = port.write('Okay')
                 response = port.readline()
@@ -216,27 +214,26 @@ Relay's must have an '@' before them.
     def _build_json(self, message, device_name):
         try:
             message = message.rstrip()
-
             contents = {}
             atoms = {}
 
             field_separator, keyval_separator =\
                 self._delimiter_factory(message, device_name)
 
-            try:
-                key_val_pairs = message.split(field_separator)
-                for pair in key_val_pairs:
+            key_val_pairs = message.split(field_separator)
+            for pair in key_val_pairs:
+                try:
                     pair_list = pair.split(keyval_separator)
                     key = pair_list[0].lstrip()
                     val = pair_list[1].lstrip()
                     atoms[key] = val
-            except:
-                print 'got exception, pair is:', pair
-                print 'field_separator is [{}]'.format(field_separator)
-                print 'keyval_separator is [{}]'.format(keyval_separator)
-                return None
-            meta_data = self.device_metadata[device_name]
+                except:
+                    print 'got exception, pair is:', pair
+                    print 'field_separator is [{}]'.format(field_separator)
+                    print 'keyval_separator is [{}]'.format(keyval_separator)
+                    return None
 
+            meta_data = self.device_metadata[device_name]
             for key in self.device_meta_data_field_names:
                 contents[key] = meta_data[key]
             contents['timestamp'] = time.time()
@@ -259,8 +256,7 @@ Relay's must have an '@' before them.
         ## based on continuos bytes with no newline return##
         # The start of line for this test is the '$' for username, and the EOL is '#' #
         start_time = time.time()
-        if not port.isOpen():
-            port.open()
+        self._ensure_port_is_open(port)
         current = port.read()
         while current != begin_of_line:
             print "Looking for {} but found {}".format(begin_of_line,current)
@@ -277,6 +273,7 @@ Relay's must have an '@' before them.
         try:
             while reading:
                 current_char_in = port.read()
+                # CMGTODO: limited selection of delimiters
                 if current_char_in == '':
                     status = False
                     empty_read_count += 1
@@ -324,10 +321,20 @@ Relay's must have an '@' before them.
         timezone = "LA" or raw_input("What is your current timezone?: ")
 
         while raw_input("Would you like to set up a device? (y/n)").startswith('y'):
-            device_name = "LoveMeter" or raw_input("What would you like to call the device?")
-            new_dev = "/dev/ttyS1" or raw_input("What is the path to {}? ".format(device_name))
-            device_type = "monitor" or raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
-            baud_rate = "9600" or raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+            debug_only_device_select = int(raw_input("Are you setting up (1) LoveMeter or (2) ServoMood?: "))
+
+            if debug_only_device_select == 1:
+                device_name = "LoveMeter" or raw_input("What would you like to call the device?")
+                new_dev = "/dev/ttyS1" or raw_input("What is the path to {}? ".format(device_name))
+                device_type = "monitor" or raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
+                baud_rate = "9600" or raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+
+            if debug_only_device_select == 2:
+                device_name = "ServoMood" or raw_input("What would you like to call the device?")
+                new_dev = "/dev/ttyS1" or raw_input("What is the path to {}? ".format(device_name))
+                device_type = "controller" or raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
+                baud_rate = "9600" or raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+
             timestamp = time.time()
 
             device_data = []
