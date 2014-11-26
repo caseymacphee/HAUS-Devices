@@ -267,13 +267,13 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                 num_devices = len(_serial_ports())
                 answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
                 username = raw_input("What is the account username for all your devices?: ")
-                username = raw_input("What is the account username for all your devices?: ")
                 password = raw_input("Enter your password: ")
                 timezone = raw_input("What is your current timezone?: ")
+                self.session = requests.Session()
                 self.session.auth = (username, password)
                 response = self.session.get('%s/devices' % self.url)
-                print "Your known devices: %s" % ", ".join[device['name']
-                                    for device in json.loads(response.content)]
+                print "Your known devices: %s" % response.content
+                # ", ".join[device[u'name'] for device in json.loads(response.content)]
                 print "Unplug them now to continue..."
                 ### Take number of devices connected initially and subtract devices to program ###
                 starting = num_devices - answer
@@ -295,6 +295,7 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                     payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1}
                     response = self.session.post('%s/devices' % self.url,
                                                  data=payload)
+                    print response.content
                     response = json.loads(response.content)
                     device_id = response['id']
                     print response
