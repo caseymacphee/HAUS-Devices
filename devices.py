@@ -11,6 +11,7 @@ import threading
 import serial
 from threading import Lock
 import requests
+import getpass
 
 class User(object):
     """
@@ -22,6 +23,8 @@ The connection returns in it's open state .
     _instances=[]
     serial_locks = {}
     url = "http://localhost:8000"  # Update this as needed
+    primary_key_owners = {}  # {device_id: [(username, devicename), ...],}
+    used_ports = []
 
     def __init__(self):
         self.send_attempt_number = 0
@@ -274,7 +277,7 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                 num_devices = len(_serial_ports())
                 answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
                 username = raw_input("What is the account username for all your devices?: ")
-                password = raw_input("Enter your password: ")
+                password = getpass.getpass("Enter your password: ")
                 timezone = raw_input("What is your current timezone?: ")
                 self.session = requests.Session()
                 self.session.auth = (username, password)
@@ -295,21 +298,33 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                         time.sleep(1)
                         current_ports = _serial_ports()
                     metadata = {}
+                    last_port = current_ports.pop()
+                    # Add logic for permissions here
+                    known_id = -99
+                    if last_port in User.primary_key_owners:  # Maybe put last_port in primary_key_owners and do this automatically
+                        known_id = User.primary_key_owners[last_port][0][]
                     device_name = raw_input("What would you like to call device {}?: ".format(current_number))
                     device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
                     baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
                     timestamp = 'timestamp'
-                    last_port = current_ports.pop()
+                    User.used_ports.append(last_port)
                     if device_type == 'monitor':
                         atoms = self.read_monitors_to_json(name, last_port)['atoms']
                     else:
                         atoms = self.ping_controller_atoms(name, last_port)['atoms']
+                    # UPDATE PAYLOAD FOR UPDATED API SOON
                     payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1, 'atoms': atoms}
+                    if known_id != -99:
+                        payload['id'] = known_id
                     response = self.session.post('%s/devices' % self.url,
                                              data=payload)
                     print response.content
                     response = json.loads(response.content)
                     device_id = response['id']
+                    if device_id in User.primary_key_owners:
+                        User.primary_key_owners[last_port].append((device_id, username, device_name))
+                    else:
+                        User.primary_key_owners[last_port] = [(device_id, username, device_name)]
                     print response
                     device_data = []
                     device_data.append(device_name)
@@ -320,7 +335,7 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                     device_data.append(timestamp)
                     metadata = dict(zip(device_meta_data_field_names, device_data))
                     self.device_metadata[device_name] = metadata
-                    ### need logic here ###
+
                     try:
                         self.device_locks[device_name] = self.serial_locks[last_port]
                     except KeyError:
