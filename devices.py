@@ -134,7 +134,7 @@ for name, port in me.controllers.iteritems():
     me.talk_to_controller(name, port, 'Relay1', '1')
 
 Relay's must have an '@' before them.
-"""
+        """
         name = state['device_name']
         port = self.named_connections[name]
 
@@ -217,7 +217,8 @@ Relay's must have an '@' before them.
         try:
             message = message.rstrip()
 
-            data_thread = {}
+            contents = {}
+            atoms = {}
 
             field_separator, keyval_separator =\
                 self._delimiter_factory(message, device_name)
@@ -228,7 +229,7 @@ Relay's must have an '@' before them.
                     pair_list = pair.split(keyval_separator)
                     key = pair_list[0].lstrip()
                     val = pair_list[1].lstrip()
-                    data_thread[key] = val
+                    atoms[key] = val
             except:
                 print 'got exception, pair is:', pair
                 print 'field_separator is [{}]'.format(field_separator)
@@ -237,11 +238,11 @@ Relay's must have an '@' before them.
             meta_data = self.device_metadata[device_name]
 
             for key in self.device_meta_data_field_names:
-                data_thread[key] = meta_data[key]
-            data_thread['timestamp'] = time.time()
+                contents[key] = meta_data[key]
+            contents['timestamp'] = time.time()
+            contents['atoms'] = atoms
 
-            return json.dumps(data_thread)
-
+            return json.dumps(contents)
         except:
             raise
 
