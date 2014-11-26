@@ -58,28 +58,35 @@ The connection returns in it's open state .
     def test_ports(self):
         pass
 
-    def read_monitors_to_json(self, name, port, timeout = 30):
+    def read_monitors_continuously(self, name, port, timeout=30):
+        start = time.time()
+        current_time = start
+        while (current_time - start) < timeout:
+            jsonmessage = self.read_monitors_to_json(name, port)
+            print jsonmessage
+            self._send_to_server(jsonmessage)
+            current_time = time.time()
+
+    def read_monitors_to_json(self, name, port):
         ### listening for 30 second timeout for testing ###
         ### if you think your monitors are running slow, check for delays in your arduino sketch ###
         start = time.time()
         current_time = start
 
-        while current_time - start < timeout:
-            port_lock = self.device_locks[name]
-            port_lock.acquire()
-            if port_lock.locked():
-                print port_lock,' acquired'
-            if not port.isOpen():
-                port.open()
-            jsonmessage = self.read_raw(name, port)
-            print jsonmessage
-            self._send_to_server(jsonmessage)
-            port_lock.release()
-            if not port_lock.locked():
-                print port_lock, 'released'
-            last_time = current_time
-            current_time = time.time()
-            print name,' took: ', int(current_time - last_time), 'seconds'
+        port_lock = self.device_locks[name]
+        port_lock.acquire()
+        if port_lock.locked():
+            print port_lock,' acquired'
+        if not port.isOpen():
+            port.open()
+        jsonmessage = self.read_raw(name, port)
+        port_lock.release()
+        if not port_lock.locked():
+            print port_lock, 'released'
+        last_time = current_time
+        current_time = time.time()
+        print name,' took: ', int(current_time - last_time), 'seconds'
+        return jsonmessage
 
     def _send_to_server(self, jsonmessage):
         self.send_attempt_number += 1
@@ -292,9 +299,14 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                     device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
                     baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
                     timestamp = 'timestamp'
-                    payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1}
+                    last_port = current_ports.pop()
+                    if device_type == 'monitor':
+                        atoms = self.read_monitors_to_json(name, last_port)['atoms']
+                    else:
+                        atoms = self.ping_controller_atoms(name, last_port)['atoms']
+                    payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1, 'atoms': atoms}
                     response = self.session.post('%s/devices' % self.url,
-                                                 data=payload)
+                                             data=payload)
                     print response.content
                     response = json.loads(response.content)
                     device_id = response['id']
@@ -308,7 +320,6 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                     device_data.append(timestamp)
                     metadata = dict(zip(device_meta_data_field_names, device_data))
                     self.device_metadata[device_name] = metadata
-                    last_port = current_ports.pop()
                     ### need logic here ###
                     try:
                         self.device_locks[device_name] = self.serial_locks[last_port]
