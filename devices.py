@@ -37,7 +37,6 @@ The connection returns in it's open state .
 
     def stream_forever(self):
         try:
-            self.run_setup()
             inf = float("inf")
             # controllers = threading.Thread(target=self.talk_to_controllers, args=(['',inf]))
             monitors = threading.Thread(target=self.read_monitors_to_json, args=([inf]))
@@ -54,7 +53,7 @@ The connection returns in it's open state .
         serial_list = []
         for port in serial_paths:
             connection = serial.serial_for_url(port, timeout = 5)
-            # connection_wrapper = io.TextIOWrapper(io.BufferedRWPair(connection,connection))
+            ### Make sure to close a 
             if connection.isOpen():
                 connection.close()
             serial_list.append(connection)
@@ -81,14 +80,8 @@ The connection returns in it's open state .
                     print port_lock,' acquired'
                 if not port.isOpen():
                     port.open()
-                current = port.read()
-                while current is not '$':
-                    current = port.read()
-                ## Your logic goes here ###
-                message = port.readline()
-                jsonmessage = self._build_json(message, name)
+                jsonmessage = self.read_raw(name, port)
                 print jsonmessage
-                port.close()
                 port_lock.release()
                 if not port_lock.locked():
                     print port_lock, 'released'
@@ -96,48 +89,55 @@ The connection returns in it's open state .
                 current_time = time.time()
                 print name,' took: ', int(current_time - last_time), 'seconds'
 
-    def talk_to_controller(self, name, port, message = ''):
-        jsonmessage = {}
+    def talk_to_controller(self, name, port, target, message = '1'):
+        """
+Use method like this:
+for name, port in me.controllers.iteritems():
+    me.talk_to_controller(name, port, 'Relay1', '1')
+        """
+
+        jsonmessage = None
         start = time.time()
         current_time = start
         if not port.isOpen():
             port.open()
-        ### Your logic goes here ###
         port_lock = self.device_locks[name]
         port_lock.acquire()
+
         if port_lock.locked():
             print port_lock,'acquired'
-        try:
-            while True:
-                port.write(message)
-                port.flush()
-                print port.readline()
-            jsonmessage = self.read_raw(name, port)
-        except:
-            print 'raised error'
+            try:
+                response = port.write('Okay')
+                response = port.readline()
+                assert response == 'Okay'
+            except:
+                raise Exception("Arduino didn't wake up.")
+        port.write(message)
+        # self.read_raw(name, port)
+        port.write('$')
+        jsonmessage = self.read_raw(name, port)
+        port.close()
         port_lock.release()
         if not port_lock.locked():
             print port_lock, 'released'
         last_time = current_time
         current_time = time.time()
         print 'method took :', int(current_time - last_time), ' seconds'
-        if port.isOpen:
-            port.close()
         return jsonmessage
 
-    def _build_json(self, message, device_name, delim = ',', key_val_split = '='):
+    def _build_json(self, name, message, delim = ',', key_val_split = '='):
         try:
             message = message.rstrip()
             data_thread = {}
-            try:
-                key_val_pairs = message.split(delim)
-                for pair in key_val_pairs:
+            key_val_pairs = message.split(delim)
+            for pair in key_val_pairs:
+                try:
                     key, val = pair.split(key_val_split)
                     data_thread[key] = val
-            except:
-                return
-            meta_data = self.device_metadata[device_name]
-            print meta_data
+                except:
+                    print 'got exception, pair is:', pair
+                    return None
+            meta_data = self.device_metadata[name]
             data_thread['device_name'] = meta_data['device_name']
             data_thread['username'] = meta_data['username']
             data_thread['access_key'] = meta_data['access_key']
@@ -146,9 +146,7 @@ The connection returns in it's open state .
             data_thread['timestamp'] = time.time()
             return json.dumps(data_thread)
         except:
-            return
-
-    
+            raise
 
     def haus_api_put(self):
         pass
@@ -156,7 +154,7 @@ The connection returns in it's open state .
     def haus_api_get(self):
         pass
 
-    def read_raw(self, name, port, begin_of_line='$', end_of_line='#', delim=',', key_val_split = '=', timeout = 60):
+    def read_raw(self, name, port, begin_of_line='$', end_of_line='#', delim=',', key_val_split = '=', timeout = 1):
         #### Should change empty readline to a timeout method.
         ### Method broken! Byte read in is not comparable using =.
         ### VAL acts as a token to know whether the next bytes string is a key or value in the serialized form###
@@ -218,11 +216,11 @@ The connection returns in it's open state .
 
     def run_setup(self, group_mode = False):
             setup_instructions = """
-    There are {} ports available.
-    If you would like to run through the device
-    setup (which will require you unplugging your
-    devices, and naming them one by one as they
-    connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
+There are {} ports available.
+If you would like to run through the device
+setup (which will require you unplugging your
+devices, and naming them one by one as they
+connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
             answer = raw_input(setup_instructions)
             if answer == 'q' or answer == 'quit':
                 pass
@@ -277,6 +275,10 @@ The connection returns in it's open state .
                         self.controllers[device_name] = last_device_connected
                     elif device_type == 'monitor':
                         self.monitors[device_name] = last_device_connected
+                    
+                    if last_device_connected.isOpen():
+                        last_device_connected.close()
+                    
                     self.named_connections[device_name] = last_device_connected
                     current_number += 1
                 current_connections = self.named_connections
