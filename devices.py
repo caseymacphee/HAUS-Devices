@@ -62,21 +62,20 @@ The connection returns in it's open state .
         start = time.time()
         current_time = start
 
-        while current_time - start < timeout:
-            port_lock = self.device_locks[name]
-            port_lock.acquire()
-            if port_lock.locked():
-                print port_lock,' acquired'
-            if not port.isOpen():
-                port.open()
-            jsonmessage = self.read_raw(name, port)
-            print jsonmessage
-            port_lock.release()
-            if not port_lock.locked():
-                print port_lock, 'released'
-            last_time = current_time
-            current_time = time.time()
-            print name,' took: ', int(current_time - last_time), 'seconds'
+        port_lock = self.device_locks[name]
+        port_lock.acquire()
+        if port_lock.locked():
+            print port_lock,' acquired'
+        if not port.isOpen():
+            port.open()
+        jsonmessage = self.read_raw(name, port)
+        print jsonmessage
+        port_lock.release()
+        if not port_lock.locked():
+            print port_lock, 'released'
+        last_time = current_time
+        current_time = time.time()
+        print name,' took: ', int(current_time - last_time), 'seconds'
 
     def ping_controller_atoms(self, name, port):
         if not port.isOpen():
