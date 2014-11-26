@@ -113,38 +113,10 @@ The connection returns in it's open state .
                 now_time = time.time()
                 print name, ' took: ', int(now_time - name_time), 'seconds'
                 name_time = now_time
+            else:
+                # if there are no monitors don't bother with time loop
+                break
 
-    #CMG version
-    # The CMG version and Casey version need to be merged into one function
-    #  that talks to controllers and uses contextlib
-    def talk_to_controllerCMG(self, name, port, message = ''):
-
-        start_time = time.time()
-
-        self._ensure_port_is_open(port)
-
-        ### Your logic goes here ###
-        port_lock = self.device_locks[name]
-        with port_lock:
-            try:
-                while True:
-                    port.write(message + "\n")
-                    port.flush()
-                    print port.readline()
-                # CMGTODO
-                #  read_raw needs to be called with the correct delimiters
-                jsonmessage = self.read_raw(name, port)
-            except:
-                print 'raised error'
-
-        print 'method took :', int(time.time() - start_time), ' seconds'
-
-        if port.isOpen:
-            port.close()
-
-        return jsonmessage
-
-    # Casey Version
     def talk_to_controller(self, name, port, target, message = '1'):
         """
         Use method like this:
@@ -153,32 +125,29 @@ The connection returns in it's open state .
         """
 
         jsonmessage = None
-        start = time.time()
-        current_time = start
-        if not port.isOpen():
-            port.open()
-        port_lock = self.device_locks[name]
-        port_lock.acquire()
 
-        if port_lock.locked():
-            print port_lock,'acquired'
+        start_time = time.time()
+
+        port_lock = self.device_locks[name]
+        with port_lock:
+            self._ensure_port_is_open(port)
             try:
                 response = port.write('Okay')
                 response = port.readline()
-                assert response == 'Okay'
+                if response != 'Okay':
+                    raise Exception("Controller response not okay")
             except:
-                raise Exception("Arduino didn't wake up.")
-        port.write(message)
-        # self.read_raw(name, port)
-        port.write('$')
-        jsonmessage = self.read_raw(name, port)
-        port.close()
-        port_lock.release()
-        if not port_lock.locked():
-            print port_lock, 'released'
-        last_time = current_time
-        current_time = time.time()
-        print 'method took :', int(current_time - last_time), ' seconds'
+                raise Exception("Controller didn't wake up.")
+
+            port.write(message)
+
+            port.write('$')
+            jsonmessage = self.read_raw(name, port)
+            if port.isOpen:
+                port.close()
+
+        print 'method took :', int(time.time() - start_time), ' seconds'
+
         return jsonmessage
 
     # CMGTODO: without memorized decorator, setup dictionary if seen before
@@ -324,10 +293,20 @@ The connection returns in it's open state .
         timezone = "LA" or raw_input("What is your current timezone?: ")
 
         while raw_input("Would you like to set up a device? (y/n)").startswith('y'):
-            device_name = "LoveMeter" or raw_input("What would you like to call the device?")
-            new_dev = "/dev/ttyS1" or raw_input("What is the path to {}? ".format(device_name))
-            device_type = "monitor" or raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
-            baud_rate = "9600" or raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+            debug_only_device_select = int(raw_input("Are you setting up (1) LoveMeter or (2) ServoMood?: "))
+
+            if debug_only_device_select == 1:
+                device_name = "LoveMeter" or raw_input("What would you like to call the device?")
+                new_dev = "/dev/ttyS1" or raw_input("What is the path to {}? ".format(device_name))
+                device_type = "monitor" or raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
+                baud_rate = "9600" or raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+
+            if debug_only_device_select == 2:
+                device_name = "ServoMood" or raw_input("What would you like to call the device?")
+                new_dev = "/dev/ttyS1" or raw_input("What is the path to {}? ".format(device_name))
+                device_type = "controller" or raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
+                baud_rate = "9600" or raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+
             timestamp = time.time()
 
             device_data = []
