@@ -316,24 +316,32 @@ Relay's must have an '@' before them.
         if (answer.lower()[0] != 'y'):
             return None
 
+        # CMGTODO: remove constant values from front of 'or'
         username = "Charles" or raw_input("What is the account username for all your devices?: ")
         access_key = "Gust" or raw_input("What is the access key?: ")
         timezone = "LA" or raw_input("What is your current timezone?: ")
 
         while raw_input("Would you like to set up a device? (y/n)").startswith('y'):
-            debug_only_device_select = int(raw_input("Are you setting up (1) LoveMeter or (2) ServoMood?: "))
+            debug_only_device_select = int(raw_input("Are you setting up (1) LoveMeter, (2) ServoMood, or (3) Other?: "))
 
             if debug_only_device_select == 1:
-                device_name = "LoveMeter" or raw_input("What would you like to call the device?")
-                new_dev = "/dev/ttyS1" or raw_input("What is the path to {}? ".format(device_name))
-                device_type = "monitor" or raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
-                baud_rate = "9600" or raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+                device_name = "LoveMeter"
+                new_dev = "/dev/ttyS1"
+                device_type = "monitor"
+                baud_rate = "9600"
 
             if debug_only_device_select == 2:
-                device_name = "ServoMood" or raw_input("What would you like to call the device?")
-                new_dev = "/dev/ttyS1" or raw_input("What is the path to {}? ".format(device_name))
-                device_type = "controller" or raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
-                baud_rate = "9600" or raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+                device_name = "ServoMood"
+                new_dev = "/dev/ttyS1"
+                device_type = "controller"
+                baud_rate = "9600"
+
+            if debug_only_device_select == 3:
+                device_name = raw_input("What would you like to call the device?")
+                new_dev = raw_input("What is the path to {}? ".format(device_name))
+                device_type = raw_input("Is {} a 'controller' or a 'monitor'?: ".format(device_name))
+                baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
+
 
             timestamp = time.time()
 
