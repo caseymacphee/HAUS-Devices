@@ -10,7 +10,7 @@ import json
 import threading
 import serial
 from threading import Lock
-
+import requests
 
 class User(object):
     """
@@ -21,8 +21,10 @@ The connection returns in it's open state .
     """
     _instances=[]
     serial_locks = {}
+    url = "http://localhost:8000"  # Update this as needed
 
     def __init__(self):
+        self.send_attempt_number = 0
         ports = _serial_ports()
         if len(self._instances) < 1:
             for serial_path in ports:
@@ -51,7 +53,7 @@ The connection returns in it's open state .
                 connection.close()
             serial_list.append(connection)
         self.serial_connections = serial_list
-        return serial_list 
+        return serial_list
 
     def test_ports(self):
         pass
@@ -62,20 +64,30 @@ The connection returns in it's open state .
         start = time.time()
         current_time = start
 
-        port_lock = self.device_locks[name]
-        port_lock.acquire()
-        if port_lock.locked():
-            print port_lock,' acquired'
-        if not port.isOpen():
-            port.open()
-        jsonmessage = self.read_raw(name, port)
-        print jsonmessage
-        port_lock.release()
-        if not port_lock.locked():
-            print port_lock, 'released'
-        last_time = current_time
-        current_time = time.time()
-        print name,' took: ', int(current_time - last_time), 'seconds'
+        while current_time - start < timeout:
+            port_lock = self.device_locks[name]
+            port_lock.acquire()
+            if port_lock.locked():
+                print port_lock,' acquired'
+            if not port.isOpen():
+                port.open()
+            jsonmessage = self.read_raw(name, port)
+            print jsonmessage
+            self._send_to_server(jsonmessage)
+            port_lock.release()
+            if not port_lock.locked():
+                print port_lock, 'released'
+            last_time = current_time
+            current_time = time.time()
+            print name,' took: ', int(current_time - last_time), 'seconds'
+
+    def _send_to_server(self, jsonmessage):
+        self.send_attempt_number += 1
+        if (self.send_attempt_number % 60):  # not zero
+            return
+        payload = json.loads(jsonmessage)
+        print "Here is where I'd put the following data: "
+        print payload
 
     def ping_controller_atoms(self, name, port):
         if not port.isOpen():
@@ -163,7 +175,7 @@ Relay's must have an '@' before them.
             self.device_metadata['timestamp'] = current_time
             contents['device_name'] = meta_data['device_name']
             contents['username'] = meta_data['username']
-            contents['access_key'] = meta_data['access_key']
+            contents['device_id'] = meta_data['device_id']
             contents['device_type'] = meta_data['device_type']
             contents['timezone'] = meta_data['timezone']
             contents['timestamp'] = current_time
@@ -233,7 +245,7 @@ Relay's must have an '@' before them.
         meta_data = self.device_metadata[name]
         contents['device_name'] = meta_data['device_name']
         contents['username'] = meta_data['username']
-        contents['access_key'] = meta_data['access_key']
+        contents['device_id'] = meta_data['device_id']
         contents['device_type'] = meta_data['device_type']
         contents['timezone'] = meta_data['timezone']
         contents['timestamp'] = time.time()
@@ -255,14 +267,19 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                 num_devices = len(_serial_ports())
                 answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
                 username = raw_input("What is the account username for all your devices?: ")
-                access_key = raw_input("What is the access key?: ")
+                password = raw_input("Enter your password: ")
                 timezone = raw_input("What is your current timezone?: ")
+                self.session = requests.Session()
+                self.session.auth = (username, password)
+                response = self.session.get('%s/devices' % self.url)
+                print "Your known devices: %s" % response.content
+                # ", ".join[device[u'name'] for device in json.loads(response.content)]
                 print "Unplug them now to continue..."
                 ### Take number of devices connected initially and subtract devices to program ###
                 starting = num_devices - answer
                 while len(_serial_ports()) > (starting):
                     time.sleep(1)
-                device_meta_data_field_names = ('device_name', 'device_type', 'username', 'access_key', 'timezone', 'timestamp')
+                device_meta_data_field_names = ('device_name', 'device_type', 'username', 'device_id', 'timezone', 'timestamp')
                 current_number = 1
                 for devices in xrange(answer):
                     current_ports = _serial_ports()
@@ -275,11 +292,18 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                     device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
                     baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
                     timestamp = 'timestamp'
+                    payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1}
+                    response = self.session.post('%s/devices' % self.url,
+                                                 data=payload)
+                    print response.content
+                    response = json.loads(response.content)
+                    device_id = response['id']
+                    print response
                     device_data = []
                     device_data.append(device_name)
                     device_data.append(device_type)
                     device_data.append(username)
-                    device_data.append(access_key)
+                    device_data.append(device_id)
                     device_data.append(timezone)
                     device_data.append(timestamp)
                     metadata = dict(zip(device_meta_data_field_names, device_data))
@@ -301,14 +325,15 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                         self.controllers[device_name] = last_device_connected
                     elif device_type == 'monitor':
                         self.monitors[device_name] = last_device_connected
-                    
+
                     if last_device_connected.isOpen():
                         last_device_connected.close()
-                    
+
                     self.named_connections[device_name] = last_device_connected
                     current_number += 1
                 current_connections = self.named_connections
                 return current_connections
+
 
 def _serial_ports():
     """Lists serial ports

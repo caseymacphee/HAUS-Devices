@@ -1,5 +1,6 @@
 py==1.4.26
 pyserial==2.7
 pytest==2.6.4
+requests==2.4.3
 tendo==0.2.6
 wsgiref==0.1.2
