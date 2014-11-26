@@ -59,7 +59,7 @@ The connection returns in it's open state .
                 connection.close()
             serial_list.append(connection)
         self.serial_connections = serial_list
-        return serial_list 
+        return serial_list
 
     def test_ports(self):
         pass
@@ -89,7 +89,7 @@ The connection returns in it's open state .
                 jsonmessage = self._build_json(message, name)
                 print jsonmessage
                 payload = json.loads(jsonmessage)
-                requests.put('localhost:8000/devices/{device_id}'.format(device_id=self.device_metadata[name]['device_id']), data=payload)
+                self.session.put('localhost:8000/devices/{device_id}'.format(device_id=self.device_metadata[name]['device_id']), data=payload)
                 port.close()
                 port_lock.release()
                 if not port_lock.locked():
@@ -182,7 +182,8 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
             timezone = raw_input("What is your current timezone?: ")
             self.session.auth = (username, password)
             response = self.session.get('http://localhost:8000/devices')
-            print "Your known devices: %s" % response.content
+            print "Your known devices: %s" % ", ".join[device['name']
+                                    for device in json.loads(response.content)]
             print "Unplug them now to continue..."
             ### Take number of devices connected initially and subtract devices to program ###
             starting = num_devices - answer
