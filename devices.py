@@ -46,16 +46,9 @@ The connection returns in it's open state .
 
     def stream_forever(self):
         try:
-            inf = float("inf")
-            # controllers = threading.Thread(target=self.talk_to_controllers, args=(['',inf]))
-            monitors = threading.Thread(target=self.read_monitors_to_json, args=([inf]))
-            # controllers.daemon = True
-            monitors.daemon = True
-            # controllers.start()
-            monitors.start()
+            pass
         except:
-            # controllers.join()
-            monitors.join()
+            pass
 
     def pickup_conn(self):
         serial_paths = _serial_ports()
@@ -78,51 +71,73 @@ The connection returns in it's open state .
             port.open()
         return
 
-    def read_monitors_to_json(self, timeout = 30):
+
+    def read_monitors_to_json(self, name, port, timeout = 30):
         ### listening for 30 second timeout for testing ###
         ### if you think your monitors are running slow, check for delays in your arduino sketch ###
         start_time = time.time()
         name_time = start_time
 
         while name_time - start_time < timeout:
-            for name, port in self.monitors.iteritems():
-                port_lock = self.device_locks[name]
-                # CMGTODO
-                # if we can't get a port_lock, it would probably be more
-                #  efficient to give up on the current monitor than have
-                #  everything else wait for it to become free.
-                with port_lock:
-                    self._ensure_port_is_open(port)
+            port_lock = self.device_locks[name]
+            # CMGTODO
+            # if we can't get a port_lock, it would probably be more
+            #  efficient to give up on the current monitor than have
+            #  everything else wait for it to become free.
+            with port_lock:
+                self._ensure_port_is_open(port)
 
-                    if ((name in self.delimiters) and
-                            (self.delimiters[name][0] == ',') and
-                            (self.delimiters[name][1] == '=')):
-                        # CMGTODO
-                        # may be possible to call read_raw passing in the
-                        #  delimiters if they are available
-                        jsonmessage = self.read_raw(name, port)
-                    else:
-                        # read twice because first line may be partial
-                        message = port.readline()
-                        message = port.readline()
-                        print message
-                        jsonmessage = self._build_json(message, name)
+                if ((name in self.delimiters) and
+                        (self.delimiters[name][0] == ',') and
+                        (self.delimiters[name][1] == '=')):
+                    # CMGTODO
+                    # may be possible to call read_raw passing in the
+                    #  delimiters if they are available
+                    jsonmessage = self.read_raw(name, port)
+                else:
+                    # read twice because first line may be partial
+                    message = port.readline()
+                    message = port.readline()
+                    print message
+                    jsonmessage = self._build_json(message, name)
 
-                    print jsonmessage
+                print jsonmessage
 
-                now_time = time.time()
-                print name, ' took: ', int(now_time - name_time), 'seconds'
-                name_time = now_time
-            else:
-                # if there are no monitors don't bother with time loop
-                break
+            now_time = time.time()
+            print name, ' took: ', int(now_time - name_time), 'seconds'
+            name_time = now_time
 
-    def talk_to_controller(self, name, port, target, message = '1'):
+    def ping_controller_atoms(self, name, port):
+        if not port.isOpen():
+            port.open()
+        port_lock = self.device_locks[name]
+        port_lock.acquire()
+        if port_lock.locked():
+            print port_lock,'acquired'
+            try:
+                response = port.write('Okay')
+                response = port.readline()
+                assert response == 'Okay'
+            except:
+                raise Exception("Arduino didn't wake up.")
+        port.write('$')
+        jsonmessage = self.read_raw(name, port)
+        port.close()
+        port_lock.release()
+        if not port_lock.locked():
+            print port_lock, 'released'
+        return jsonmessage
+
+    def talk_to_controller(self, state):
         """
-        Use method like this:
-        for name, port in me.controllers.iteritems():
-        me.talk_to_controller(name, port, 'Relay1', '1')
+Use method like this:
+for name, port in me.controllers.iteritems():
+    me.talk_to_controller(name, port, 'Relay1', '1')
+
+Relay's must have an '@' before them.
         """
+        name = state['device_name']
+        port = self.named_connections[name]
 
         jsonmessage = None
 
@@ -141,13 +156,22 @@ The connection returns in it's open state .
 
             port.write(message)
 
+            atoms = state['atoms']
+            for key, val in atoms.iteritems():
+                if key[0] == '@':
+                    switch_name, switch_number = key.split('_')
+                    if val == '1' or val == 1:
+                        print switch_number
+                        print type(switch_number)
+                        port.write(str(switch_number))
+                        self.read_raw(name, port)
+
             port.write('$')
             jsonmessage = self.read_raw(name, port)
             if port.isOpen:
                 port.close()
 
         print 'method took :', int(time.time() - start_time), ' seconds'
-
         return jsonmessage
 
     # CMGTODO: without memorized decorator, setup dictionary if seen before
@@ -190,7 +214,9 @@ The connection returns in it's open state .
     def _build_json(self, message, device_name):
         try:
             message = message.rstrip()
-            data_thread = {}
+
+            contents = {}
+            atoms = {}
 
             field_separator, keyval_separator =\
                 self._delimiter_factory(message, device_name)
@@ -201,7 +227,7 @@ The connection returns in it's open state .
                     pair_list = pair.split(keyval_separator)
                     key = pair_list[0].lstrip()
                     val = pair_list[1].lstrip()
-                    data_thread[key] = val
+                    atoms[key] = val
             except:
                 print 'got exception, pair is:', pair
                 print 'field_separator is [{}]'.format(field_separator)
@@ -210,10 +236,11 @@ The connection returns in it's open state .
             meta_data = self.device_metadata[device_name]
 
             for key in self.device_meta_data_field_names:
-                data_thread[key] = meta_data[key]
-            data_thread['timestamp'] = time.time()
+                contents[key] = meta_data[key]
+            contents['timestamp'] = time.time()
+            contents['atoms'] = atoms
 
-            return json.dumps(data_thread)
+            return json.dumps(contents)
         except:
             raise
 
@@ -238,6 +265,7 @@ The connection returns in it's open state .
             current = port.read()
             if time.time() - start_time > timeout: return
         VAL = False
+        atoms = {}
         contents = {}
         reading = True
         status = True
@@ -254,10 +282,10 @@ The connection returns in it's open state .
                     ## IE we are getting data but end of line ##
                     status = True
                     reading = False
-                    contents[current_key] = current_value
+                    atoms[current_key] = current_value
                 elif current_char_in == delim:
                     ## There is a new set of key value pairs ##
-                    contents[current_key] = current_value
+                    atoms[current_key] = current_value
                     current_value = ''
                     current_key = ''
                     status = True
@@ -279,6 +307,7 @@ The connection returns in it's open state .
         for key in self.device_meta_data_field_names:
             contents[key] = meta_data[key]
         contents['timestamp'] = time.time()
+        contents['atoms'] = atoms
 
         return json.dumps(contents)
 
