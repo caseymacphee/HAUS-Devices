@@ -24,7 +24,6 @@ The connection returns in it's open state .
     serial_locks = {}
     url = "http://localhost:8000"  # Update this as needed
     primary_key_owners = {}  # {device_id: [(username, devicename), ...],}
-    used_ports = []
 
     def __init__(self):
         self.send_attempt_number = 0
@@ -71,7 +70,7 @@ The connection returns in it's open state .
             current_time = time.time()
 
     def read_monitors_to_json(self, name, port):
-        ### listening for 30 second timeout for testing ###
+        ### for testing ###
         ### if you think your monitors are running slow, check for delays in your arduino sketch ###
         start = time.time()
         current_time = start
@@ -95,7 +94,8 @@ The connection returns in it's open state .
         self.send_attempt_number += 1
         if (self.send_attempt_number % 60):  # not zero
             return
-        payload = json.loads(jsonmessage)
+        # PUT device_metadata['device_id'] into payload
+        payload = jsonmessage
         print "Here is where I'd put the following data: "
         print payload
 
@@ -255,12 +255,12 @@ Relay's must have an '@' before them.
         meta_data = self.device_metadata[name]
         contents['device_name'] = meta_data['device_name']
         contents['username'] = meta_data['username']
-        contents['device_id'] = meta_data['device_id']
+        # contents['device_id'] = meta_data['device_id']
         contents['device_type'] = meta_data['device_type']
         contents['timezone'] = meta_data['timezone']
         contents['timestamp'] = time.time()
         contents['atoms'] = atoms
-        return json.dumps(contents)
+        return contents
 
     def run_setup(self, group_mode = False):
             setup_instructions = """
@@ -289,7 +289,7 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                 starting = num_devices - answer
                 while len(_serial_ports()) > (starting):
                     time.sleep(1)
-                device_meta_data_field_names = ('device_name', 'device_type', 'username', 'device_id', 'timezone', 'timestamp')
+                device_meta_data_field_names = ('device_name', 'device_type', 'username', 'timezone', 'timestamp')
                 current_number = 1
                 for devices in xrange(answer):
                     current_ports = _serial_ports()
@@ -302,18 +302,41 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                     # Add logic for permissions here
                     known_id = -99
                     if last_port in User.primary_key_owners:  # Maybe put last_port in primary_key_owners and do this automatically
-                        known_id = User.primary_key_owners[last_port][0][]
+                        print "This is the same as a previous user's device."
+                        known_id = User.primary_key_owners[last_port][0][0]
                     device_name = raw_input("What would you like to call device {}?: ".format(current_number))
                     device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
                     baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
                     timestamp = 'timestamp'
-                    User.used_ports.append(last_port)
+
+                    try:
+                        self.device_locks[device_name] = self.serial_locks[last_port]
+                    except KeyError:
+                        self.serial_locks[last_port] = Lock()
+                        self.device_locks[device_name] = self.serial_locks[last_port]
+                    last_device_connected = self.pickup_conn()[-1]
+
+                    device_data = []
+                    device_data.append(device_name)
+                    device_data.append(device_type)
+                    device_data.append(username)
+                    # device_data.append(device_id)
+                    device_data.append(timezone)
+                    device_data.append(timestamp)
+                    metadata = dict(zip(device_meta_data_field_names, device_data))
+                    self.device_metadata[device_name] = metadata
+
+
                     if device_type == 'monitor':
-                        atoms = self.read_monitors_to_json(name, last_port)['atoms']
+                        atoms = self.read_monitors_to_json(device_name, last_device_connected)['atoms']
+                        atom_identifiers = [name for name in atoms]
+                        print "Out of read_raw", atom_identifiers
                     else:
-                        atoms = self.ping_controller_atoms(name, last_port)['atoms']
+                        atoms = self.ping_controller_atoms(device_name, last_device_connected)['atoms']
+                        atom_identifiers = [name for name in atoms]
                     # UPDATE PAYLOAD FOR UPDATED API SOON
-                    payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1, 'atoms': atoms}
+                    payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1, 'atoms': atom_identifiers}
+                    print "Payload", payload
                     if known_id != -99:
                         payload['id'] = known_id
                     response = self.session.post('%s/devices' % self.url,
@@ -326,22 +349,9 @@ connect. Enter 'quit' or 'continue': """.format(len(_serial_ports()))
                     else:
                         User.primary_key_owners[last_port] = [(device_id, username, device_name)]
                     print response
-                    device_data = []
-                    device_data.append(device_name)
-                    device_data.append(device_type)
-                    device_data.append(username)
-                    device_data.append(device_id)
-                    device_data.append(timezone)
-                    device_data.append(timestamp)
-                    metadata = dict(zip(device_meta_data_field_names, device_data))
-                    self.device_metadata[device_name] = metadata
 
-                    try:
-                        self.device_locks[device_name] = self.serial_locks[last_port]
-                    except KeyError:
-                        self.serial_locks[last_port] = Lock()
-                        self.device_locks[device_name] = self.serial_locks[last_port]
-                    last_device_connected = self.pickup_conn()[-1]
+                    self.device_metadata[device_name]['device_id'] = device_id
+
                     if baud_rate != '':
                         try:
                             last_device_connected.baud_rate = int(baud_rate)
