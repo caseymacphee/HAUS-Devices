@@ -86,20 +86,20 @@ The connection returns in it's open state .
             with port_lock:
                 self._ensure_port_is_open(port)
 
-                if ((name in self.delimiters) and
-                        (self.delimiters[name][0] == ',') and
-                        (self.delimiters[name][1] == '=')):
-                    # CMGTODO
-                    # may be possible to call read_raw passing in the
-                    #  delimiters if they are available
-                    jsonmessage = self.read_raw(name, port)
-                else:
-                    # read twice because first line may be partial
-                    message = port.readline()
-                    message = port.readline()
-                    print message
-                    jsonmessage = self._build_json(message, name)
-
+                # if ((name in self.delimiters) and
+                #         (self.delimiters[name][0] == ',') and
+                #         (self.delimiters[name][1] == '=')):
+                #     # CMGTODO
+                #     # may be possible to call read_raw passing in the
+                #     #  delimiters if they are available
+                #     jsonmessage = self.read_raw(name, port)
+                # else:
+                #     # read twice because first line may be partial
+                #     message = port.readline()
+                #     message = port.readline()
+                #     print message
+                #     jsonmessage = self._build_json(message, name)
+                jsonmessage = self.read_raw(name, port)
                 print jsonmessage
 
             now_time = time.time()
@@ -179,15 +179,15 @@ Relay's must have an '@' before them.
         if device_name in self.delimiters:
             return self.delimiters[device_name]
 
-        field_separator = None
-        keyval_separator = None
+        field_separator = {[',', ';', '\n']}
+        keyval_separator = {[':', '=']}
         in_single_quote = False
         in_double_quote = False
         index = 0
         maxlen = len(message)
 
         while (index < maxlen) and (
-              (field_separator is None) or (keyval_separator is None)):
+              (len(field_separator) > 1) or (len(keyval_separator) > 1)):
             c = message[index]
             if (c == '"') and (not in_single_quote):
                 in_double_quote = not in_double_quote
@@ -196,9 +196,9 @@ Relay's must have an '@' before them.
             elif in_single_quote or in_double_quote:
                 # if in a quoted string, don't check for separators
                 pass
-            elif (c == ':') or (c == '='):
+            elif (c in keyval_separator):
                 keyval_separator = c
-            elif (c == ',') or (c == ';') or (c == '\n'):
+            elif (c in field_separator):
                 field_separator = c
             index += 1
 
@@ -249,58 +249,80 @@ Relay's must have an '@' before them.
     def haus_api_get(self):
         pass
 
-    def read_raw(self, name, port, begin_of_line='$', end_of_line='#', delim=',', key_val_split = '=', timeout = 1):
+    # read_raw() is a method to pick up reading from the serial port at
+    #  a time when we don't know where we are in the stream. The routine
+   #  is able to build some atoms, but perhaps not more than that.
+    # if timeout, just return
+    def read_raw(self, name, port, timeout = 5):
+        """ return JSON representation of parsed line from port, possibly parsed partial line """
         #### Should change empty readline to a timeout method.
         ### Method broken! Byte read in is not comparable using =.
         ### VAL acts as a token to know whether the next bytes string is a key or value in the serialized form###
         ## based on continuos bytes with no newline return##
         # The start of line for this test is the '$' for username, and the EOL is '#' #
-        start_time = time.time()
-        self._ensure_port_is_open(port)
-        current = port.read()
-        while current != begin_of_line:
-            print "Looking for {} but found {}".format(begin_of_line,current)
-            current = port.read()
-            if time.time() - start_time > timeout: return
-        VAL = False
+
+        # We can start our data structure with any key value pair. A key value pair
+        #  starts after a field_separator (comma or semi-colon), or after a new-line
+        #  Apparently, there are also some scenarios where this could occur after a
+        #  dollar sign. So, if you see any four of these characters, you are probably
+        #  just about to start a key value pair. Well, as long as none of these
+        #  characters occur in strings.
+        # If the string is already read, a potentially slower but more robust
+        #  way to read is to use the split and strip methods on the entire line
+        key_value_start_set = {b'\n', b',', b';', b'$'}
+        fieldsep = {b',', b';', b'\n', b'\r', b'#'}
+        keysep = {b':', b'='}
+        whitespace_set = {b' ', b'\t'}
+        if self.delimiters:
+            if self.delimiters[0]:
+                fieldsep = self.delimiters[0] + {b'\n', b'#'}
+            if self.delimiters[1]:
+                keysep = self.delimiters[1]
+
         atoms = {}
         contents = {}
-        reading = True
-        status = True
-        empty_read_count = 0
-        current_key = ''
-        current_value = ''
-        try:
-            while reading:
-                current_char_in = port.read()
-                # CMGTODO: limited selection of delimiters
-                if current_char_in == '':
-                    status = False
-                    empty_read_count += 1
-                elif current_char_in == end_of_line:
-                    ## IE we are getting data but end of line ##
-                    status = True
-                    reading = False
-                    atoms[current_key] = current_value
-                elif current_char_in == delim:
-                    ## There is a new set of key value pairs ##
-                    atoms[current_key] = current_value
-                    current_value = ''
-                    current_key = ''
-                    status = True
-                    VAL = not VAL
-                elif current_char_in == '=':
-                    status = True
-                    VAL = not VAL
-                else:
-                    status = True
-                    if VAL:
-                        current_value += current_char_in
-                    else:
-                        current_key += current_char_in
-        except:
-            print "Didn't read"
-        print "Read status: ", status
+
+        port_lock = self.device_locks[name]
+        with port_lock:
+            self._ensure_port_is_open(port)
+
+            start_time = time.time()
+            current = port.read()
+            while current not in key_value_start_set:
+                print "Looking for key_value_start but found {}".format(current)
+                current = port.read()
+                if time.time() - start_time > timeout: return
+
+            done = False
+            # try:
+            while not done:
+                current_key = ''
+                current_value = ''
+
+                c = port.read()
+                while c in whitespace_set:
+                    c = port.read()
+
+                while c not in keysep:
+                    current_key += c
+                    c = port.read()
+
+                c = port.read()
+                while c in whitespace_set:
+                    c = port.read()
+
+                while c not in fieldsep:
+                    current_value += c
+                    c = port.read()
+
+                atoms[current_key] = current_value
+
+                # either of these mark the EOL
+                done = c in {b'\n', b'#', b'\r'}
+            # except:
+            #     print "Cannot read_raw"
+            #     raise # Exception("Cannot read_raw")
+
         # if empty_read_count <= empty_read_limit:
         meta_data = self.device_metadata[name]
         for key in self.device_meta_data_field_names:
