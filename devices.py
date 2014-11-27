@@ -39,7 +39,7 @@ The connection returns in it's open state .
 
     def stream_forever(self):
         try:
-            pass
+            for 
         except:
             pass
 
@@ -73,7 +73,7 @@ The connection returns in it's open state .
                 port.open()
             jsonmessage = self.read_raw(name, port)
             print jsonmessage
-            self._send_to_server(jsonmessage)
+            # self._send_to_server(jsonmessage)
             port_lock.release()
             if not port_lock.locked():
                 print port_lock, 'released'
