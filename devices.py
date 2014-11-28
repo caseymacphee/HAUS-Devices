@@ -23,7 +23,7 @@ The connection returns in it's open state .
     """
     _instances=[]
     serial_locks = {}
-    url = "http://localhost:8000"  # Update this as needed
+    url = "http://ec2-54-148-194-170.us-west-2.compute.amazonaws.com"  # Update this as needed
     primary_key_owners = {}  # {device_id: [(username, devicename), ...],}
 
     def __init__(self):
@@ -71,9 +71,8 @@ The connection returns in it's open state .
     def read_monitors_continuously(self, name, port, timeout=30):
         start = time.time()
         current_time = start
-        while (current_time - start) < timeout:
+        while (timeout is None) or ((current_time - start) < timeout):
             jsonmessage = self.read_monitors_to_json(name, port)
-            print jsonmessage
             self._send_to_server(jsonmessage)
             current_time = time.time()
 
@@ -99,19 +98,33 @@ The connection returns in it's open state .
         jsonmessage = self.read_raw(name, port)
 
         now_time = time.time()
-        print name, ' took: ', int(now_time - name_time), 'seconds'
+        # print name, ' took: ', int(now_time - name_time), 'seconds'
         name_time = now_time
         return jsonmessage
 
 
     def _send_to_server(self, jsonmessage):
         self.send_attempt_number += 1
-        if (self.send_attempt_number % 60):  # not zero
+        if (self.send_attempt_number % 10):  # not zero
             return
         # PUT device_metadata['device_id'] into payload
-        payload = jsonmessage
-        print "Here is where I'd put the following data: "
-        print payload
+        payload = {}
+        payload['timestamp'] = jsonmessage['timestamp']
+        print "The atoms thing is:"
+        print type(jsonmessage['atoms']), jsonmessage['atoms']
+        payload['atoms'] = jsonmessage['atoms']
+        dev_id = self.device_metadata[jsonmessage['device_name']]['device_id']
+        device_address = "%s/devices/%d/" % (self.url, dev_id)
+        response = self.session.post(device_address, json=payload)
+        print "Posted data: "
+        print response.request
+        print response.status_code
+        if response.status_code == 500:
+            import io
+            with io.open('error.html', 'wb') as errorfile:
+                errorfile.write(response.content)
+        else:
+            print response.content
 
     def ping_controller_atoms(self, name, port):
         port_lock = self.device_locks[name]
@@ -507,7 +520,6 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     User.primary_key_owners[last_port].append((device_id, username, device_name))
                 else:
                     User.primary_key_owners[last_port] = [(device_id, username, device_name)]
-                print response
 
                 self.device_metadata[device_name]['device_id'] = device_id
 
