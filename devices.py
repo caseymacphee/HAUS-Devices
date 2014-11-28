@@ -44,13 +44,12 @@ The connection returns in it's open state .
             'device_name',
             'device_type',
             'username',
-            'access_key',
             'timezone',
             'timestamp')
 
     def stream_forever(self):
         try:
-            pass 
+            pass
         except:
             pass
 
@@ -96,9 +95,8 @@ The connection returns in it's open state .
         # if we can't get a port_lock, it would probably be more
         #  efficient to give up on the current monitor than have
         #  everything else wait for it to become free.
-        with port_lock:
-            self._ensure_port_is_open(port)
-            jsonmessage = self.read_raw(name, port)
+
+        jsonmessage = self.read_raw(name, port)
 
         now_time = time.time()
         print name, ' took: ', int(now_time - name_time), 'seconds'
@@ -350,7 +348,7 @@ Relay's must have an '@' before them.
 
         # CMGTODO: remove constant values from front of 'or'
         username = "Charles" or raw_input("What is the account username for all your devices?: ")
-        access_key = "Gust" or raw_input("What is the access key?: ")
+        # access_key = "Gust" or raw_input("What is the access key?: ")
         timezone = "LA" or raw_input("What is your current timezone?: ")
 
         while raw_input("Would you like to set up a device? (y/n)").startswith('y'):
@@ -381,7 +379,7 @@ Relay's must have an '@' before them.
             device_data.append(device_name)
             device_data.append(device_type)
             device_data.append(username)
-            device_data.append(access_key)
+            # device_data.append(access_key)
             device_data.append(timezone)
             device_data.append(timestamp)
 
@@ -480,7 +478,6 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 metadata = dict(zip(device_meta_data_field_names, device_data))
                 self.device_metadata[device_name] = metadata
 
-
                 if device_type == 'monitor':
                     atoms = self.read_monitors_to_json(device_name, last_device_connected)['atoms']
                     atom_identifiers = [name for name in atoms]
@@ -489,13 +486,19 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     atoms = self.ping_controller_atoms(device_name, last_device_connected)['atoms']
                     atom_identifiers = [name for name in atoms]
                 # UPDATE PAYLOAD FOR UPDATED API SOON
-                payload = {'name': device_name, 'device_type': device_type, 'serialpath': 0, 'user': 1, 'atoms': atom_identifiers}
+                payload = {'device_name': device_name, 'device_type': device_type, 'atoms': atom_identifiers}
                 print "Payload", payload
                 if known_id != -99:
                     payload['id'] = known_id
                 response = self.session.post('%s/devices' % self.url,
                                          data=payload)
-                print response.content
+
+                # JBB: Make this pretty and handle server errors gracefully
+                if response.status_code == 201:
+                    print response.content
+                else:
+                    print "Non 201 response: Received ", response.status_code
+
                 response = json.loads(response.content)
                 device_id = response['id']
                 if device_id in User.primary_key_owners:
