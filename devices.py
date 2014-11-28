@@ -90,7 +90,7 @@ The connection returns in it's open state .
         start_time = time.time()
         name_time = start_time
 
-        port_lock = self.device_locks[name]
+        # port_lock = self.device_locks[name]
         # CMGTODO
         # if we can't get a port_lock, it would probably be more
         #  efficient to give up on the current monitor than have
@@ -128,7 +128,7 @@ The connection returns in it's open state .
                 raise Exception("Controller didn't wake up.")
             port.write('$')
             jsonmessage = self.read_raw(name, port)
-            if post.isOpen():
+            if port.isOpen():
                 port.close()
 
         return jsonmessage
@@ -434,8 +434,12 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
             self.session = requests.Session()
             self.session.auth = (username, password)
             response = self.session.get('%s/devices' % self.url)
-            print "Your known devices: %s" % response.content
-            # ", ".join[device[u'name'] for device in json.loads(response.content)]
+            if response.status_code == 200:
+                devices = json.loads(response.content)
+                print "Your known devices: %s" % \
+                    ", ".join([device['device_name'] for device in devices])
+            else:
+                print "HTTP Error retrieving devices: ", response.status_code
             print "Unplug them now to continue..."
             ### Take number of devices connected initially and subtract devices to program ###
             starting = num_devices - answer
@@ -481,23 +485,21 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 if device_type == 'monitor':
                     atoms = self.read_monitors_to_json(device_name, last_device_connected)['atoms']
                     atom_identifiers = [name for name in atoms]
-                    print "Out of read_raw", atom_identifiers
                 else:
                     atoms = self.ping_controller_atoms(device_name, last_device_connected)['atoms']
                     atom_identifiers = [name for name in atoms]
-                # UPDATE PAYLOAD FOR UPDATED API SOON
                 payload = {'device_name': device_name, 'device_type': device_type, 'atoms': atom_identifiers}
-                print "Payload", payload
                 if known_id != -99:
-                    payload['id'] = known_id
+                    payload['device_id'] = known_id
                 response = self.session.post('%s/devices' % self.url,
                                          data=payload)
 
-                # JBB: Make this pretty and handle server errors gracefully
-                if response.status_code == 201:
-                    print response.content
+                # JBB: Make this handle server errors gracefully
+                if response.status_code in (201, 202):
+                    print "Device registered with server"
                 else:
-                    print "Non 201 response: Received ", response.status_code
+                    print "Problem registering device: HTTPError ",\
+                        response.status_code
 
                 response = json.loads(response.content)
                 device_id = response['id']
