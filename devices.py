@@ -47,11 +47,18 @@ The connection returns in it's open state .
             'timezone',
             'timestamp')
 
-    def stream_forever(self):
+    def stream_forever(self, frequency = 'A'):
+        inf = float("inf")
+        monitor_threads = []
         try:
-            pass
+            for name, port in self.monitors:
+                thread = threading.Thread(target=self.read_monitors_continuously, args = (name, port, inf, frequency))
+                thread.daemon = True
+                thread.start()
+                monitor_thrads.append(thread)
         except:
-            pass
+            for thread in monitor_threads:
+                thread.join()
 
     def pickup_conn(self):
         serial_paths = _serial_ports()
@@ -68,14 +75,51 @@ The connection returns in it's open state .
     def test_ports(self):
         pass
 
-    def read_monitors_continuously(self, name, port, timeout=30):
+    def read_monitors_continuously(self, name, port, timeout=30, frequency = 'A'):
         start = time.time()
         current_time = start
         while (current_time - start) < timeout:
-            jsonmessage = self.read_monitors_to_json(name, port)
-            print jsonmessage
-            self._send_to_server(jsonmessage)
-            current_time = time.time()
+            ### frequency logic goes here
+            if frequency == 'A':
+                data_dict = self.read_monitors_to_json(name, port)
+                print data_dict
+                self._send_to_server(data_dict)
+                current_time = time.time()
+            elif frequency == 'M':
+                ### finds the average values if they're numbers else, take the last value ###
+                ### reports the average timestamp ###
+                minute_average_dict = self.log_data(60, name, port)
+                print minute_average_dict
+                self._send_to_server(minute_average_dict)
+            elif frequency == 'H':
+                ## same for hour ##
+                hour_average_dict = self.log_data(3600, name, port)
+                print hour_average_dict
+                self._send_to_server
+
+    def log_data(self, name, port, seconds):
+        logs = []
+        start = time.time()
+        current_time = start
+        while current_time - start < seconds:
+            log.append(self.read_monitors_to_json(name, port))
+            current_time = time.time()  
+        average_data = {}
+        for log in logs:
+            for key, val in log['atoms'].iteritems():
+                if is_number(val):
+                    try:
+                        average_data[key] = average_data[key] + val
+                    except:
+                        average_data[key] = val
+                else:
+                    ### If it's not a number, the last value is reported
+                    average_data[key] = val
+        for key, summed_data in average_data.iteritems():
+            if is_number(summed_data):
+                average_data[key] = summed_data / len(logs)
+        return average_data
+
 
 
     # CMGTODO: _ensure_port_is_open should be static function, or in another class
@@ -550,3 +594,10 @@ def _serial_ports():
     else:
         raise EnvironmentError('Unsupported platform')
     return ports
+
+def is_number(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
