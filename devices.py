@@ -95,7 +95,7 @@ The connection returns in it's open state .
                 ## same for hour ##
                 hour_average_dict = self.log_data(3600, name, port)
                 print hour_average_dict
-                self._send_to_server
+                self._send_to_server(hour_average_dict)
 
     def log_data(self, name, port, seconds):
         logs = []
@@ -120,8 +120,6 @@ The connection returns in it's open state .
                 average_data[key] = summed_data / len(logs)
         return average_data
 
-
-
     # CMGTODO: _ensure_port_is_open should be static function, or in another class
     def _ensure_port_is_open(self, port):
         if not port.isOpen():
@@ -143,19 +141,33 @@ The connection returns in it's open state .
         jsonmessage = self.read_raw(name, port)
 
         now_time = time.time()
-        print name, ' took: ', int(now_time - name_time), 'seconds'
+        # print name, ' took: ', int(now_time - name_time), 'seconds'
         name_time = now_time
         return jsonmessage
 
 
     def _send_to_server(self, jsonmessage):
         self.send_attempt_number += 1
-        if (self.send_attempt_number % 60):  # not zero
+        if (self.send_attempt_number % 10):  # not zero
             return
         # PUT device_metadata['device_id'] into payload
-        payload = jsonmessage
-        print "Here is where I'd put the following data: "
-        print payload
+        payload = {}
+        payload['timestamp'] = jsonmessage['timestamp']
+        print "The atoms thing is:"
+        print type(jsonmessage['atoms']), jsonmessage['atoms']
+        payload['atoms'] = jsonmessage['atoms']
+        dev_id = self.device_metadata[jsonmessage['device_name']]['device_id']
+        device_address = "%s/devices/%d/" % (self.url, dev_id)
+        response = self.session.post(device_address, json=payload)
+        print "Posted data: "
+        print response.request
+        print response.status_code
+        if response.status_code == 500:
+            import io
+            with io.open('error.html', 'wb') as errorfile:
+                errorfile.write(response.content)
+        else:
+            print response.content
 
     def ping_controller_atoms(self, name, port):
         port_lock = self.device_locks[name]
@@ -551,7 +563,6 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     User.primary_key_owners[last_port].append((device_id, username, device_name))
                 else:
                     User.primary_key_owners[last_port] = [(device_id, username, device_name)]
-                print response
 
                 self.device_metadata[device_name]['device_id'] = device_id
 
