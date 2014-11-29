@@ -23,7 +23,7 @@ The connection returns in it's open state .
     """
     _instances=[]
     serial_locks = {}
-    url = "http://localhost:8000"  # Update this as needed
+    url = "http://ec2-54-148-194-170.us-west-2.compute.amazonaws.com"  # Update this as needed
     primary_key_owners = {}  # {device_id: [(username, devicename), ...],}
 
     def __init__(self):
