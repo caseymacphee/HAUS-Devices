@@ -499,18 +499,14 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
             print "Unplug them now to continue..."
             ### Take number of devices connected initially and subtract devices to program ###
             starting = num_devices - answer
-            print starting
             while len(_serial_ports()) > (starting):
                 time.sleep(1)
-            print _serial_ports()
             device_meta_data_field_names = ('device_name', 'device_type', 'username', 'timezone', 'timestamp')
             current_number = 1
             for devices in xrange(answer):
                 current_ports = _serial_ports()
                 print "Now plug in device {}...".format(current_number)
-                print current_ports
                 while len(current_ports) < current_number + starting:
-                    print current_ports
                     time.sleep(1)
                     current_ports = _serial_ports()
                 metadata = {}
@@ -601,9 +597,10 @@ def _serial_ports():
     elif sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
         ### The second is for xbee port ###
         ports = glob.glob('/dev/ttyACM*') + glob.glob('/dev/ttyUSB*')
-        if len(ports) == 0:
-            # on ubuntu with virtual connections
-            ports = ['/dev/ttyS1']
+        ###This cannot go here.
+        # if len(ports) == 0:
+        #     # on ubuntu with virtual connections
+        #     ports = ['/dev/ttyS1']
     elif sys.platform.startswith('darwin'):
         ### the second glob is for the xbee
         ports = glob.glob('/dev/tty.usbmodem*') + glob.glob('/dev/tty.usbserial*')
