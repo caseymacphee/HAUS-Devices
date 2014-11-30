@@ -595,7 +595,8 @@ def _serial_ports():
     if sys.platform.startswith('win'):
         ports = ['COM' + str(i + 1) for i in range(256)]
     elif sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
-        ports = glob.glob('/dev/ttyACM*')
+        ### The second is for xbee port ###
+        ports = glob.glob('/dev/ttyACM*') + glob.glob('/dev/ttyUSB*')
         if len(ports) == 0:
             # on ubuntu with virtual connections
             ports = ['/dev/ttyS1']
