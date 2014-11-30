@@ -98,6 +98,7 @@ The connection returns in it's open state .
                 self._send_to_server(hour_average_dict)
 
     def log_data(self, name, port, seconds):
+        ### Please note that the reported timestamp on averaged data is also and average value.
         logs = []
         start = time.time()
         current_time = start
@@ -170,24 +171,29 @@ The connection returns in it's open state .
             print response.content
 
     def ping_controller_atoms(self, name, port):
-        port_lock = self.device_locks[name]
 
-        with port_lock:
-            self._ensure_port_is_open(port)
-            try:
-                response = port.write('Okay')
-                response = port.readline()
-                if response[0] != 'O' or response[0] != '#':
-                    if response != 'Okay':
-                        raise Exception("Controller is not Okay")
-            except:
-                raise Exception("Controller didn't wake up.")
-            port.write('$')
-            jsonmessage = self.read_raw(name, port)
-            if port.isOpen():
-                port.close()
-
-        return jsonmessage
+        self._ensure_port_is_open(port)
+        # try:
+        #     response = port.write('Okay')
+        #     response = port.readline()
+        #     print response
+        #     if response[0] != 'O' or response[0] != b'#':
+        #         raise Exception("Controller is not Okay")
+        # except:
+        #     print "Controller didn't wake up"
+        #     # raise Exception("Controller didn't wake up.")
+        port.write('$')
+        response = port.readline()
+        ###this is hardcoded for testing with relay ###
+        cleanedresponse = response.rstrip()[1:-1]
+        atom_pairs = cleanedresponse.split(',')
+        atoms = {}
+        for pair in atom_pairs:
+            key, val = pair.split('=')
+            atoms[key] = val
+        if port.isOpen():
+            port.close()
+        return atoms
 
     def talk_to_controller(self, state):
         """
@@ -199,35 +205,39 @@ Relay's must have an '@' before them.
         """
         name = state['device_name']
         port = self.named_connections[name]
-
+        print name
+        print port
         jsonmessage = None
         start_time = time.time()
 
         port_lock = self.device_locks[name]
         with port_lock:
+            print "has lock"
+            print "port open"
+            # try:
+            #     response = port.write('Okay')
+            #     response = port.readline()
+            #     if response[0] != 'O' or response[0] != '#':
+            #         raise("Controller is not Okay")
+            # except:
+            #     raise Exception("Controller didn't wake up.")
+            current_state = self.ping_controller_atoms(name, port)
             self._ensure_port_is_open(port)
-            try:
-                response = port.write('Okay')
-                response = port.readline()
-                if response[0] != 'O':
-                    if response != 'Okay':
-                        raise("Controller is not Okay")
-            except:
-                raise Exception("Controller didn't wake up.")
-
             atoms = state['atoms']
+            print current_state
+            print atoms
             for key, val in atoms.iteritems():
                 if key[0] == '@':
                     switch_name, switch_number = key.split('_')
-                    if val == '1' or val == 1:
-                        print switch_number
-                        print type(switch_number)
+                    if val != current_state[key]:
+                        print "desired = ", val, " current = ", current_state[key]
                         port.write(str(switch_number))
-                        self.read_raw(name, port)
+                        port.readline()
 
             port.write('$')
-            jsonmessage = self.read_raw(name, port)
-
+            # jsonmessage = self.read_raw(name, port)
+            print port.readline()
+            # print jsonmessage
             # CMGTODO: I don't know why this code closes
             # the port. Maybe it's required to make sure the
             # write works.
@@ -316,6 +326,7 @@ Relay's must have an '@' before them.
     #  a time when we don't know where we are in the stream. The routine
    #  is able to build some atoms, but perhaps not more than that.
     # if timeout, just return
+
     def read_raw(self, name, port, timeout = 5):
         """ return JSON representation of parsed line from port, possibly parsed partial line """
         #### Should change empty readline to a timeout method.
@@ -354,6 +365,7 @@ Relay's must have an '@' before them.
             while current not in key_value_start_set:
                 print "Looking for key_value_start but found {}".format(current)
                 current = port.read()
+                print current
                 if time.time() - start_time > timeout: return
 
             done = False
@@ -542,7 +554,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     atoms = self.read_monitors_to_json(device_name, last_device_connected)['atoms']
                     atom_identifiers = [name for name in atoms]
                 else:
-                    atoms = self.ping_controller_atoms(device_name, last_device_connected)['atoms']
+                    atoms = self.ping_controller_atoms(device_name, last_device_connected)
                     atom_identifiers = [name for name in atoms]
                 payload = {'device_name': device_name, 'device_type': device_type, 'atoms': atom_identifiers}
                 if known_id != -99:
