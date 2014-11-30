@@ -177,9 +177,9 @@ The connection returns in it's open state .
             try:
                 response = port.write('Okay')
                 response = port.readline()
-                if response[0] != 'O':
-                    if response != 'Okay':
-                        raise Exception("Controller is not Okay")
+                # if response[0] != 'O':
+                #     if response != 'Okay':
+                #         raise Exception("Controller is not Okay")
             except:
                 raise Exception("Controller didn't wake up.")
             port.write('$')
