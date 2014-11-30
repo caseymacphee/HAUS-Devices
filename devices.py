@@ -65,9 +65,6 @@ The connection returns in it's open state .
         serial_list = []
         for port in serial_paths:
             connection = serial.serial_for_url(port, timeout = 5)
-            ### Make sure to close a
-            if connection.isOpen():
-                connection.close()
             serial_list.append(connection)
         self.serial_connections = serial_list
         return serial_list
@@ -133,13 +130,13 @@ The connection returns in it's open state .
         start_time = time.time()
         name_time = start_time
 
-        # port_lock = self.device_locks[name]
+        port_lock = self.device_locks[name]
         # CMGTODO
         # if we can't get a port_lock, it would probably be more
         #  efficient to give up on the current monitor than have
         #  everything else wait for it to become free.
-
-        jsonmessage = self.read_raw(name, port)
+        with port_lock:
+            jsonmessage = self.read_raw(name, port)
 
         now_time = time.time()
         # print name, ' took: ', int(now_time - name_time), 'seconds'
@@ -183,16 +180,20 @@ The connection returns in it's open state .
         #     print "Controller didn't wake up"
         #     # raise Exception("Controller didn't wake up.")
         port.write('$')
-        response = port.readline()
-        ###this is hardcoded for testing with relay ###
-        cleanedresponse = response.rstrip()[1:-1]
-        atom_pairs = cleanedresponse.split(',')
-        atoms = {}
-        for pair in atom_pairs:
-            key, val = pair.split('=')
-            atoms[key] = val
-        if port.isOpen():
-            port.close()
+        # response = port.readline()
+        # ###this is hardcoded for testing with relay ###
+        # print response
+        # cleanedresponse = response.rstrip()[1:-1]
+        # atom_pairs = cleanedresponse.split(',')
+        # atoms = {}
+        # for pair in atom_pairs:
+        #     try:
+        #         key, val = pair.split('=')
+        #         atoms[key] = val
+        #     except:
+        #         print "couldn't split"
+        #     print atoms
+        atoms = self.read_raw(name, port)['atoms']
         return atoms
 
     def talk_to_controller(self, state):
@@ -232,17 +233,14 @@ Relay's must have an '@' before them.
                     if val != current_state[key]:
                         print "desired = ", val, " current = ", current_state[key]
                         port.write(str(switch_number))
-                        port.readline()
 
             port.write('$')
-            # jsonmessage = self.read_raw(name, port)
-            print port.readline()
+            jsonmessage = self.read_raw(name, port)
+            
             # print jsonmessage
             # CMGTODO: I don't know why this code closes
             # the port. Maybe it's required to make sure the
             # write works.
-            if port.isOpen():
-                port.close()
 
         print 'method took :', int(time.time() - start_time), ' seconds'
         return jsonmessage
@@ -355,48 +353,45 @@ Relay's must have an '@' before them.
 
         atoms = {}
         contents = {}
+        self._ensure_port_is_open(port)
 
-        port_lock = self.device_locks[name]
-        with port_lock:
-            self._ensure_port_is_open(port)
-
-            start_time = time.time()
+        start_time = time.time()
+        current = port.read()
+        while current not in key_value_start_set:
+            print "Looking for key_value_start but found {}".format(current)
             current = port.read()
-            while current not in key_value_start_set:
-                print "Looking for key_value_start but found {}".format(current)
-                current = port.read()
-                print current
-                if time.time() - start_time > timeout: return
+            print current
+            if time.time() - start_time > timeout: return
 
-            done = False
-            # try:
-            while not done:
-                current_key = ''
-                current_value = ''
+        done = False
+        # try:
+        while not done:
+            current_key = ''
+            current_value = ''
 
+            c = port.read()
+            while c in whitespace_set:
                 c = port.read()
-                while c in whitespace_set:
-                    c = port.read()
 
-                while c not in keysep:
-                    current_key += c
-                    c = port.read()
-
+            while c not in keysep:
+                current_key += c
                 c = port.read()
-                while c in whitespace_set:
-                    c = port.read()
 
-                while c not in fieldsep:
-                    current_value += c
-                    c = port.read()
+            c = port.read()
+            while c in whitespace_set:
+                c = port.read()
 
-                atoms[current_key] = current_value
+            while c not in fieldsep:
+                current_value += c
+                c = port.read()
 
-                # either of these mark the EOL
-                done = c in {b'\n', b'#', b'\r'}
-            # except:
-            #     print "Cannot read_raw"
-            #     raise # Exception("Cannot read_raw")
+            atoms[current_key] = current_value
+
+            # either of these mark the EOL
+            done = c in {b'\n', b'#', b'\r'}
+        # except:
+        #     print "Cannot read_raw"
+        #     raise # Exception("Cannot read_raw")
 
         # if empty_read_count <= empty_read_limit:
         meta_data = self.device_metadata[name]
@@ -526,8 +521,8 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 # Add logic for permissions here
                 known_id = -99
                 if last_port in User.primary_key_owners:  # Maybe put last_port in primary_key_owners and do this automatically
-                    print "This is the same as a previous user's device."
-                    known_id = User.primary_key_owners[last_port][0][0]
+                    print "A device can only have one owner, if you'd like to share data you can do so from the owner's dashboard."
+                    break
                 device_name = raw_input("What would you like to call device {}?: ".format(current_number))
                 device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
                 baud_rate = raw_input("The default Baud rate is 9600. Set it now if you like, else hit enter: ")
@@ -538,7 +533,8 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 except KeyError:
                     self.serial_locks[last_port] = Lock()
                     self.device_locks[device_name] = self.serial_locks[last_port]
-                last_device_connected = self.pickup_conn()[-1]
+                
+                
 
                 device_data = []
                 device_data.append(device_name)
@@ -550,6 +546,13 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 metadata = dict(zip(device_meta_data_field_names, device_data))
                 self.device_metadata[device_name] = metadata
 
+                last_device_connected = self.pickup_conn()[-1]
+                if not last_device_connected.isOpen():
+                    last_device_connected.open()
+                ### This is Arduino protocol ###
+                last_device_connected.write('Okay')
+                response = last_device_connected.readline()
+                assert response == 'Okay'
                 if device_type == 'monitor':
                     atoms = self.read_monitors_to_json(device_name, last_device_connected)['atoms']
                     atom_identifiers = [name for name in atoms]
@@ -559,6 +562,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 payload = {'device_name': device_name, 'device_type': device_type, 'atoms': atom_identifiers}
                 if known_id != -99:
                     payload['device_id'] = known_id
+                print "made it payload"
                 response = self.session.post('%s/devices' % self.url,
                                          data=payload)
 
@@ -583,13 +587,11 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                         last_device_connected.baud_rate = int(baud_rate)
                     except:
                         raise Exception('Could not set that baud rate, check your input and try again.')
+                
                 if device_type == 'controller':
                     self.controllers[device_name] = last_device_connected
                 elif device_type == 'monitor':
                     self.monitors[device_name] = last_device_connected
-
-                if last_device_connected.isOpen():
-                    last_device_connected.close()
 
                 self.named_connections[device_name] = last_device_connected
                 current_number += 1
