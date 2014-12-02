@@ -427,10 +427,8 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
         if answer[0] == 'c':
             num_devices = len(_serial_ports())
             answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
-            # username = raw_input("What is the account username for all your devices?: ")
-            # password = getpass.getpass("Enter your password: ")
-            username = 'NotABoa'
-            password = 'constrictor'
+            username = raw_input("What is the account username for all your devices?: ")
+            password = getpass.getpass("Enter your password: ")
             self.session = requests.Session()
             self.session.auth = (username, password)
             response = self.session.get('%s/devices' % self.url)
