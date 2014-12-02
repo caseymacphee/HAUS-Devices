@@ -43,7 +43,6 @@ The connection returns in it's open state .
             'device_name',
             'device_type',
             'username',
-            'timezone',
             'timestamp')
 
     def stream_forever(self, read = 'A', poll = 'S'):
@@ -356,8 +355,7 @@ Relay's must have an '@' before them.
         # CMGTODO: remove constant values from front of 'or'
         username = "Charles" or raw_input("What is the account username for all your devices?: ")
         # access_key = "Gust" or raw_input("What is the access key?: ")
-        timezone = "LA" or raw_input("What is your current timezone?: ")
-
+        
         while raw_input("Would you like to set up a device? (y/n)").startswith('y'):
             debug_only_device_select = int(raw_input("Are you setting up (1) LoveMeter, (2) ServoMood, or (3) Other?: "))
 
@@ -387,7 +385,6 @@ Relay's must have an '@' before them.
             device_data.append(device_type)
             device_data.append(username)
             # device_data.append(access_key)
-            device_data.append(timezone)
             device_data.append(timestamp)
 
             metadata = dict(zip(self.device_meta_data_field_names, device_data))
@@ -423,21 +420,19 @@ Relay's must have an '@' before them.
             return self.virtual_connections(group_mode)
 
         setup_instructions = """
-There are {} ports available.
+There are {} visible serial ports.
 If you would like to run through the device
 setup (which will require you unplugging your
 devices, and naming them one by one as they
 connect. Enter 'quit' or 'continue': """.format(num_devices)
         answer = raw_input(setup_instructions)
-        if answer == 'q' or answer == 'quit':
+        if answer[0] == 'q' :
             pass
-        if answer == 'c' or answer == 'continue':
-            answer = raw_input('Plug all your devices in now to continue, then hit enter:')
+        if answer[0] == 'c':
             num_devices = len(_serial_ports())
             answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
             username = raw_input("What is the account username for all your devices?: ")
             password = getpass.getpass("Enter your password: ")
-            timezone = raw_input("What is your current timezone?: ")
             self.session = requests.Session()
             self.session.auth = (username, password)
             response = self.session.get('%s/devices' % self.url)
@@ -484,11 +479,16 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 device_data.append(device_type)
                 device_data.append(username)
                 # device_data.append(device_id)
-                device_data.append(timezone)
+
                 device_data.append(timestamp)
                 metadata = dict(zip(self.device_meta_data_field_names, device_data))
                 self.device_metadata[device_name] = metadata
-                last_device_connected = self.pickup_conn()[-1]
+                
+                if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
+                    last_device_connected = self.pickup_conn()[0]
+                else:
+                    last_device_connected = self.pickup_conn()[-1]
+                
                 self.named_connections[device_name] = last_device_connected
                 self._ensure_port_is_open(last_device_connected)
                 ### This is Arduino protocol ###
@@ -498,11 +498,10 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                 if device_type == 'monitor':
                     atoms = self.read_raw(device_name)['atoms']
                     if atoms is None:
-                        print "Couldn't read the monitor for the specified timeout."
+                        print "Read nothing from the monitor."
                         break
                     atom_identifiers = [name for name in atoms]
                 else:
-                    assert response == 'Okay' or response == '####'
                     atoms = self.ping_controller_state(device_name)['atoms']
                     atom_identifiers = [name for name in atoms]
                 payload = {'device_name': device_name, 'device_type': device_type, 'atoms': atom_identifiers}
