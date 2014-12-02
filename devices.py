@@ -455,7 +455,11 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     time.sleep(1)
                     current_ports = _serial_ports()
                 metadata = {}
-                last_port = current_ports.pop()
+                 if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
+                    last_port = current_ports.pop(0)
+                else:
+                    last_port = current_ports.pop()
+                
                 # Add logic for permissions here
                 known_id = -99
                 if last_port in User.primary_key_owners:  # Maybe put last_port in primary_key_owners and do this automatically
