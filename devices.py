@@ -46,17 +46,27 @@ The connection returns in it's open state .
             'timezone',
             'timestamp')
 
-    def stream_forever(self, frequency = 'A'):
+    def stream_forever(self, read = 'A', poll = 'S'):
         inf = float("inf")
         monitor_threads = []
+        controller_threads = []
         try:
             for name, port in self.monitors:
-                thread = threading.Thread(target=self.read_monitors_continuously, args = (name, port, inf, frequency))
+                thread = threading.Thread(target=self.read_monitor_continuously, args = (name, inf, read))
                 thread.daemon = True
                 thread.start()
                 monitor_threads.append(thread)
         except:
             for thread in monitor_threads:
+                thread.join()
+        try:
+            for name in self.controllers:
+                thread = threading.Thread(target=self.sync_controller_continuously, args = (name, inf, poll))
+                thread.daemon = True
+                thread.start()
+                controller_threads.append(thread)
+        except:
+            for thread in controller_threads:
                 thread.join()
 
     def pickup_conn(self):
@@ -68,7 +78,7 @@ The connection returns in it's open state .
         self.serial_connections = serial_list
         return serial_list
 
-    def read_monitors_continuously(self, name, timeout=30, frequency = 'A'):
+    def read_monitor_continuously(self, name, timeout=30, frequency = 'A'):
         start = time.time()
         current_time = start
         port_lock = self.device_locks[name]
@@ -93,6 +103,7 @@ The connection returns in it's open state .
 
                 current_time = time.time()
 
+    
     def log_data(self, name, timeout):
         ### Please note that the reported timestamp on averaged data is also and average value.
         logs = []
@@ -148,7 +159,41 @@ The connection returns in it's open state .
         else:
             print response.content
 
-    def get_state_from_server(self, name):
+    def sync_controller_continuously(self, name, timeout = 30, frequency = 'A'):
+        start = time.time()
+        current_time = start
+        port_lock = self.device_locks[name]
+        with port_lock:
+            while (current_time - start) < timeout:
+                if frequency == 'A':
+                    self._sync_controller_states(name)
+                elif frequency == 'S':
+                    start_time = time.time()
+                    freq = 10
+                    self._sync_controller_states(name)
+                    current = time.time()
+                    while current - current_time < freq:
+                        time.sleep(1)
+                        current = time.time()
+                elif frequency == 'M':
+                    start_time = time.time()
+                    freq = 60
+                    self._sync_controller_states(name)
+                    current = time.time()
+                    while current - current_time < freq:
+                        time.sleep(1)
+                        current = time.time()
+                elif frequency == 'T':
+                    start_time = time.time()
+                    freq = 600
+                    self._sync_controller_states(name)
+                    current = time.time()
+                    while current - current_time < freq:
+                        time.sleep(1)
+                        current = time.time()
+                current_time = time.time()
+
+    def _sync_controller_states(self, name):
         dev_id = self.device_metadata[name]['device_id']
         device_address = "%s/devices/%d/current/" % (self.url, dev_id)
         response = self.session.get(device_address)
@@ -160,7 +205,7 @@ The connection returns in it's open state .
         for atom in response_dict:
             if 'atom_name' in atom:
                 desired_states[atom['atom_name']] = atom['value']
-        print desired_states
+        # print desired_states
         
         response = self.talk_to_controller(name, desired_states)
         device_address = "%s/devices/%d/" % (self.url, dev_id)
@@ -185,19 +230,16 @@ Relay's must have an '@' before them.
         port = self.named_connections[name]
         state_dict = None
         start_time = time.time()
-
-        port_lock = self.device_locks[name]
-        with port_lock:
-            current_state = self.ping_controller_state(name)['atoms']
-            print current_state
-            for key, val in current_state.iteritems():
-                if key[0] == '@':
-                    relay_name, relay_number = key.split('_')
-                    if int(val) != int(float(desired_state[key])):
-                        # print "current = ", val, " desired = ", desired_state[key]
-                        port.write(str(relay_number))
-            port.write('$')
-            state_dict = self.read_raw(name)
+        current_state = self.ping_controller_state(name)['atoms']
+        # print current_state
+        for key, val in current_state.iteritems():
+            if key[0] == '@':
+                relay_name, relay_number = key.split('_')
+                if int(val) != int(float(desired_state[key])):
+                    # print "current = ", val, " desired = ", desired_state[key]
+                    port.write(str(relay_number))
+        port.write('$')
+        state_dict = self.read_raw(name)
         # print 'method took :', int(time.time() - start_time), ' seconds'
         return state_dict
 
