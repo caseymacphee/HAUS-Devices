@@ -455,7 +455,7 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     time.sleep(1)
                     current_ports = _serial_ports()
                 metadata = {}
-                 if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
+                if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
                     last_port = current_ports.pop(0)
                 else:
                     last_port = current_ports.pop()
