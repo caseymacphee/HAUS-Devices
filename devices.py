@@ -80,7 +80,6 @@ The connection returns in it's open state .
         start = time.time()
         current_time = start
         port_lock = self.device_locks[name]
-        port = self.named_connections[name]
         with port_lock:
             while (current_time - start) < timeout:
                 ### frequency logic goes here
@@ -139,24 +138,21 @@ The connection returns in it's open state .
         return
 
     def _send_to_server(self, jsonmessage):
-        try:
-            self.send_attempt_number += 1
-            payload = {}
-            payload['timestamp'] = jsonmessage['timestamp']
-            payload['atoms'] = jsonmessage['atoms']
-            dev_id = self.device_metadata[jsonmessage['device_name']]['device_id']
-            device_address = "%s/devices/%d/" % (self.url, dev_id)
-            response = self.session.post(device_address, json=payload)
-            print "Api receipt: "
-            print response.status_code
-            if response.status_code == 500:
-                import io
-                with io.open('error.html', 'wb') as errorfile:
-                    errorfile.write(response.content)
-            else:
-                print response.content
-        except:
-            print "didn't have enough content to send"
+        self.send_attempt_number += 1
+        payload = {}
+        payload['timestamp'] = jsonmessage['timestamp']
+        payload['atoms'] = jsonmessage['atoms']
+        dev_id = self.device_metadata[jsonmessage['device_name']]['device_id']
+        device_address = "%s/devices/%d/" % (self.url, dev_id)
+        response = self.session.post(device_address, json=payload)
+        print "Api receipt: "
+        print response.status_code
+        if response.status_code == 500:
+            import io
+            with io.open('error.html', 'wb') as errorfile:
+                errorfile.write(response.content)
+        else:
+            print response.content
 
     def sync_controller_continuously(self, name, timeout = 30, frequency = 'A'):
         start = time.time()
@@ -431,8 +427,10 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
         if answer[0] == 'c':
             num_devices = len(_serial_ports())
             answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
-            username = raw_input("What is the account username for all your devices?: ")
-            password = getpass.getpass("Enter your password: ")
+            # username = raw_input("What is the account username for all your devices?: ")
+            # password = getpass.getpass("Enter your password: ")
+            username = 'NotABoa'
+            password = 'constrictor'
             self.session = requests.Session()
             self.session.auth = (username, password)
             response = self.session.get('%s/devices' % self.url)
