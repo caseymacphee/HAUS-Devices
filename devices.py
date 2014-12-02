@@ -51,21 +51,20 @@ The connection returns in it's open state .
         monitor_threads = []
         controller_threads = []
         try:
-            for name, port in self.monitors:
+            for name in self.monitors:
                 thread = threading.Thread(target=self.read_monitor_continuously, args = (name, inf, read))
                 thread.daemon = True
                 thread.start()
                 monitor_threads.append(thread)
-        except:
-            for thread in monitor_threads:
-                thread.join()
-        try:
+     
             for name in self.controllers:
                 thread = threading.Thread(target=self.sync_controller_continuously, args = (name, inf, poll))
                 thread.daemon = True
                 thread.start()
                 controller_threads.append(thread)
         except:
+            for thread in monitor_threads:
+                thread.join()
             for thread in controller_threads:
                 thread.join()
 
@@ -141,23 +140,24 @@ The connection returns in it's open state .
         return
 
     def _send_to_server(self, jsonmessage):
-        self.send_attempt_number += 1
-        # PUT device_metadata['device_id'] into payload
-        payload = {}
-        payload['timestamp'] = jsonmessage['timestamp']
-        payload['atoms'] = jsonmessage['atoms']
-        dev_id = self.device_metadata[jsonmessage['device_name']]['device_id']
-        device_address = "%s/devices/%d/" % (self.url, dev_id)
-        response = self.session.post(device_address, json=payload)
-        print "Api receipt: "
-        print response.request
-        print response.status_code
-        if response.status_code == 500:
-            import io
-            with io.open('error.html', 'wb') as errorfile:
-                errorfile.write(response.content)
-        else:
-            print response.content
+        try:
+            self.send_attempt_number += 1
+            payload = {}
+            payload['timestamp'] = jsonmessage['timestamp']
+            payload['atoms'] = jsonmessage['atoms']
+            dev_id = self.device_metadata[jsonmessage['device_name']]['device_id']
+            device_address = "%s/devices/%d/" % (self.url, dev_id)
+            response = self.session.post(device_address, json=payload)
+            print "Api receipt: "
+            print response.status_code
+            if response.status_code == 500:
+                import io
+                with io.open('error.html', 'wb') as errorfile:
+                    errorfile.write(response.content)
+            else:
+                print response.content
+        except:
+            print "didn't have enough content to send"
 
     def sync_controller_continuously(self, name, timeout = 30, frequency = 'A'):
         start = time.time()
