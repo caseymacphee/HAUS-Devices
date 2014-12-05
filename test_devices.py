@@ -1,43 +1,108 @@
-import pytest
+#Test for monitor and controller
+##Relay
 import devices
-import io
-import time
+me = devices.User()
+me.run_setup()
+for name in me.monitors:
+    print "Gathering data as soon as possible"
+    me.read_monitors_continuously(name, 60, 'A')
+    print "Gathering data minutely"
+    me.read_monitors_continuously(name, 60, 'M')
+    print "Gathering data every 10 minutes"
+    me.read_monitors_continuously(name, 600, 'T')
+    print "Gathering data hourly"
+    # me.read_monitors_continuously(name, 3600, 'H')
 
-def test_connections():
-    boards = devices.Devices()
-    boards = boards.pickup_conn()
-    uri = boards[1]
-    rachel = boards[0]
-    assert not uri.isOpen()
-    assert not rachel.isOpen()
-    uri.open()
-    assert uri.isOpen()
-    rachel.open()
-    assert rachel.isOpen()
-    rachel.flush()
-    rachel.readline()
-    rachel.close()
-    assert not rachel.isOpen()
-    uri.flush()
-    uri.close()
-    assert not uri.isOpen()
 
-def test_message(devices):
-    while True:
-        for name, device in devices.labeled_connections.iteritems():
-            if not device.isOpen():
-                device.open()
-            # device_wrapper = io.TextIOWrapper(io.BufferedRWPair(device, device))
-            # device_wrapper.flush()
-            if name == 'uri':
-                input = device.readline()
-            else:
-                input = device.read()
-                device.flush()
-                device.write('1\r\n')
-            # device.flush()
-            print len(input)
-            input = input.rstrip()
-            print devices.username, ":", name, ":", input
-            device.close()
-            time.sleep(10)
+
+##Controller
+import devices
+you = devices.User()
+you.run_setup()
+
+def set_state(states, atoms):
+    for key, val in atoms.iteritems():
+        relay, num = key.split('_')
+        if num == '1':
+            atoms[key] = states[0]
+        elif num == '2':
+            atoms[key] = states[1]
+        elif num == '3':
+            atoms[key] = states[2]
+        elif num == '4':
+            atoms[key] = states[3]
+    return atoms
+
+for name in you.controllers:
+    states = [0,0,0,0]
+    for index, state in enumerate(states):
+        states[index] = 1
+        dictionary = you.ping_controller_state(name)
+        atoms = dictionary['atoms']
+        dictionary['atoms'] = set_state(states, atoms)
+        you.talk_to_controller(dictionary)
+        states[index] = 0
+        states = [0,0,0,0]
+    for index in reversed(xrange(len(states))):
+        states[index] = 1
+        dictionary = you.ping_controller_state(name)
+        atoms = dictionary['atoms']
+        dictionary['atoms'] = set_state(states, atoms)
+        you.talk_to_controller(dictionary)
+        states[index] = 0
+        states = [1,1,1,1]
+    for index, state in enumerate(states):
+        states[index] = 0
+        dictionary = you.ping_controller_state(name)
+        atoms = dictionary['atoms']
+        dictionary['atoms'] = set_state(states, atoms)
+        you.talk_to_controller(dictionary)
+        states[index] = 1
+        states = [1,1,1,1]
+    for index, state in enumerate(states):
+        states[index] = 0
+        dictionary = you.ping_controller_state(name)
+        atoms = dictionary['atoms']
+        dictionary['atoms'] = set_state(states, atoms)
+        you.talk_to_controller(dictionary)
+        states[index] = 1
+        states = [1,1,1,1]
+    for index in reversed(xrange(len(states))):
+        states[index] = 0
+        dictionary = you.ping_controller_state(name)
+        atoms = dictionary['atoms']
+        dictionary['atoms'] = set_state(states, atoms)
+        you.talk_to_controller(dictionary)
+        states[index] = 1
+    states = [0,0,0,0]
+    dictionary = you.ping_controller_state(name)
+    atoms = dictionary['atoms']
+    dictionary['atoms'] = set_state(states, atoms)
+    you.talk_to_controller(dictionary)
+    states = [1,1,1,1]
+    dictionary = you.ping_controller_state(name)
+    atoms = dictionary['atoms']
+    dictionary['atoms'] = set_state(states, atoms)
+    you.talk_to_controller(dictionary)
+    states = [0,0,0,0]
+    dictionary = you.ping_controller_state(name)
+    atoms = dictionary['atoms']
+    dictionary['atoms'] = set_state(states, atoms)
+    you.talk_to_controller(dictionary)
+    states = [1,1,1,1]
+    dictionary = you.ping_controller_state(name)
+    atoms = dictionary['atoms']
+    dictionary['atoms'] = set_state(states, atoms)
+    you.talk_to_controller(dictionary)
+    states = [0,0,0,0]
+    dictionary = you.ping_controller_state(name)
+    atoms = dictionary['atoms']
+    dictionary['atoms'] = set_state(states, atoms)
+    you.talk_to_controller(dictionary)
+    states = [1,1,1,1]
+    dictionary = you.ping_controller_state(name)
+    atoms = dictionary['atoms']
+    dictionary['atoms'] = set_state(states, atoms)
+    you.talk_to_controller(dictionary)
+
+

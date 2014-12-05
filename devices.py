@@ -24,8 +24,7 @@ The connection returns in it's open state .
     _instances=[]
     serial_locks = {}
     url = "http://ec2-54-148-194-170.us-west-2.compute.amazonaws.com"  # Update this as needed
-    primary_key_owners = {}  # {device_id: [(username, devicename), ...],}
-
+    primary_key_owners = {}  # {port : [(device_id, username, device_name)]}
     def __init__(self):
         self.send_attempt_number = 0
         ports = _serial_ports()
@@ -44,20 +43,28 @@ The connection returns in it's open state .
             'device_name',
             'device_type',
             'username',
-            'timezone',
             'timestamp')
 
-    def stream_forever(self, frequency = 'A'):
+    def stream_forever(self, read = 'A', poll = 'S'):
         inf = float("inf")
         monitor_threads = []
+        controller_threads = []
         try:
-            for name, port in self.monitors:
-                thread = threading.Thread(target=self.read_monitors_continuously, args = (name, port, inf, frequency))
+            for name in self.monitors:
+                thread = threading.Thread(target=self.read_monitor_continuously, args = (name, inf, read))
                 thread.daemon = True
                 thread.start()
-                monitor_thrads.append(thread)
+                monitor_threads.append(thread)
+     
+            for name in self.controllers:
+                thread = threading.Thread(target=self.sync_controller_continuously, args = (name, inf, poll))
+                thread.daemon = True
+                thread.start()
+                controller_threads.append(thread)
         except:
             for thread in monitor_threads:
+                thread.join()
+            for thread in controller_threads:
                 thread.join()
 
     def pickup_conn(self):
@@ -69,45 +76,49 @@ The connection returns in it's open state .
         self.serial_connections = serial_list
         return serial_list
 
-    def test_ports(self):
-        pass
-
-    def read_monitors_continuously(self, name, port, timeout=30, frequency = 'A'):
+    def read_monitor_continuously(self, name, timeout=30, frequency = 'A'):
         start = time.time()
         current_time = start
-        while (current_time - start) < timeout:
-            ### frequency logic goes here
-            if frequency == 'A':
-                data_dict = self.read_monitors_to_json(name, port)
-                print data_dict
-                self._send_to_server(data_dict)
-                current_time = time.time()
-            elif frequency == 'M':
-                ### finds the average values if they're numbers else, take the last value ###
-                ### reports the average timestamp ###
-                minute_average_dict = self.log_data(60, name, port)
-                print minute_average_dict
-                self._send_to_server(minute_average_dict)
-            elif frequency == 'H':
-                ## same for hour ##
-                hour_average_dict = self.log_data(3600, name, port)
-                print hour_average_dict
-                self._send_to_server(hour_average_dict)
+        port_lock = self.device_locks[name]
+        with port_lock:
+            while (current_time - start) < timeout:
+                ### frequency logic goes here
+                if frequency == 'A':
+                    data_dict = self.read_raw(name)
+                    self._send_to_server(data_dict)
+                    current_time = time.time()
+                elif frequency == 'M':
+                    minute_average_dict = self.log_data(name, 60)
+                    self._send_to_server(minute_average_dict)
+                elif frequency == 'T':
+                    ## same for ten minutes ##
+                    ten_min_average_dict = self.log_data(name, 600)
+                    self._send_to_server(ten_min_average_dict)
+                elif frequency == 'H':
+                    hour_average_dict = self.log_data(name, 3600)
+                    self._send_to_server(hour_average_dict)
 
-    def log_data(self, name, port, seconds):
+                current_time = time.time()
+
+    
+    def log_data(self, name, timeout):
         ### Please note that the reported timestamp on averaged data is also and average value.
         logs = []
         start = time.time()
         current_time = start
-        while current_time - start < seconds:
-            log.append(self.read_monitors_to_json(name, port))
+        data_gathered = 0
+        while current_time - start < timeout:
+            print "Gathering data...got {} records so far.".format(data_gathered)
+            current_data = self.read_raw(name)
+            logs.append(current_data)
+            data_gathered += 1
             current_time = time.time()  
         average_data = {}
         for log in logs:
             for key, val in log['atoms'].iteritems():
                 if is_number(val):
                     try:
-                        average_data[key] = average_data[key] + val
+                        average_data[key] = float(average_data[key]) + float(val)
                     except:
                         average_data[key] = val
                 else:
@@ -115,50 +126,26 @@ The connection returns in it's open state .
                     average_data[key] = val
         for key, summed_data in average_data.iteritems():
             if is_number(summed_data):
-                average_data[key] = summed_data / len(logs)
-        return average_data
+                average_data[key] = float(summed_data) / len(logs)
+        log['atoms'] = average_data
+        return log
 
-    # CMGTODO: _ensure_port_is_open should be static function, or in another class
     def _ensure_port_is_open(self, port):
         if not port.isOpen():
             port.open()
+            port.write('Okay')
+            print "opened the port"
         return
-
-    def read_monitors_to_json(self, name, port, timeout = 30):
-        ### listening for 30 second timeout for testing ###
-        ### if you think your monitors are running slow, check for delays in your arduino sketch ###
-        start_time = time.time()
-        name_time = start_time
-
-        port_lock = self.device_locks[name]
-        # CMGTODO
-        # if we can't get a port_lock, it would probably be more
-        #  efficient to give up on the current monitor than have
-        #  everything else wait for it to become free.
-        with port_lock:
-            jsonmessage = self.read_raw(name, port)
-
-        now_time = time.time()
-        # print name, ' took: ', int(now_time - name_time), 'seconds'
-        name_time = now_time
-        return jsonmessage
-
 
     def _send_to_server(self, jsonmessage):
         self.send_attempt_number += 1
-        if (self.send_attempt_number % 10):  # not zero
-            return
-        # PUT device_metadata['device_id'] into payload
         payload = {}
         payload['timestamp'] = jsonmessage['timestamp']
-        print "The atoms thing is:"
-        print type(jsonmessage['atoms']), jsonmessage['atoms']
         payload['atoms'] = jsonmessage['atoms']
         dev_id = self.device_metadata[jsonmessage['device_name']]['device_id']
         device_address = "%s/devices/%d/" % (self.url, dev_id)
         response = self.session.post(device_address, json=payload)
-        print "Posted data: "
-        print response.request
+        print "Api receipt: "
         print response.status_code
         if response.status_code == 500:
             import io
@@ -167,36 +154,67 @@ The connection returns in it's open state .
         else:
             print response.content
 
-    def ping_controller_atoms(self, name, port):
+    def sync_controller_continuously(self, name, timeout = 30, frequency = 'A'):
+        start = time.time()
+        current_time = start
+        port_lock = self.device_locks[name]
+        with port_lock:
+            while (current_time - start) < timeout:
+                if frequency == 'A':
+                    self._sync_controller_states(name)
+                elif frequency == 'S':
+                    start_time = time.time()
+                    freq = 10
+                    self._sync_controller_states(name)
+                    current = time.time()
+                    while current - current_time < freq:
+                        time.sleep(1)
+                        current = time.time()
+                elif frequency == 'M':
+                    start_time = time.time()
+                    freq = 60
+                    self._sync_controller_states(name)
+                    current = time.time()
+                    while current - current_time < freq:
+                        time.sleep(1)
+                        current = time.time()
+                elif frequency == 'T':
+                    start_time = time.time()
+                    freq = 600
+                    self._sync_controller_states(name)
+                    current = time.time()
+                    while current - current_time < freq:
+                        time.sleep(1)
+                        current = time.time()
+                current_time = time.time()
 
+    def _sync_controller_states(self, name):
+        dev_id = self.device_metadata[name]['device_id']
+        device_address = "%s/devices/%d/current/" % (self.url, dev_id)
+        response = self.session.get(device_address)
+        if response.status_code != 200:
+            print "Something went wrong when contacting the server"
+            return
+        response_dict = json.loads(response.content)
+        desired_states = {}
+        for atom in response_dict:
+            if 'atom_name' in atom:
+                desired_states[atom['atom_name']] = atom['value']
+        # print desired_states
+        
+        response = self.talk_to_controller(name, desired_states)
+        device_address = "%s/devices/%d/" % (self.url, dev_id)
+        response = self.session.post(device_address, json=response)
+        print response
+
+    def ping_controller_state(self, name):
+        port = self.named_connections[name]
         self._ensure_port_is_open(port)
-        # try:
-        #     response = port.write('Okay')
-        #     response = port.readline()
-        #     print response
-        #     if response[0] != 'O' or response[0] != b'#':
-        #         raise Exception("Controller is not Okay")
-        # except:
-        #     print "Controller didn't wake up"
-        #     # raise Exception("Controller didn't wake up.")
         port.write('$')
-        # response = port.readline()
-        # ###this is hardcoded for testing with relay ###
-        # print response
-        # cleanedresponse = response.rstrip()[1:-1]
-        # atom_pairs = cleanedresponse.split(',')
-        # atoms = {}
-        # for pair in atom_pairs:
-        #     try:
-        #         key, val = pair.split('=')
-        #         atoms[key] = val
-        #     except:
-        #         print "couldn't split"
-        #     print atoms
-        atoms = self.read_raw(name, port)['atoms']
-        return atoms
+        dictionary = self.read_raw(name)
+        return dictionary
 
-    def talk_to_controller(self, state):
+    def talk_to_controller(self, name, desired_state):
         """
 Use method like this:
 for name, port in me.controllers.iteritems():
@@ -204,46 +222,21 @@ for name, port in me.controllers.iteritems():
 
 Relay's must have an '@' before them.
         """
-        name = state['device_name']
         port = self.named_connections[name]
-        print name
-        print port
-        jsonmessage = None
+        state_dict = None
         start_time = time.time()
-
-        port_lock = self.device_locks[name]
-        with port_lock:
-            print "has lock"
-            print "port open"
-            # try:
-            #     response = port.write('Okay')
-            #     response = port.readline()
-            #     if response[0] != 'O' or response[0] != '#':
-            #         raise("Controller is not Okay")
-            # except:
-            #     raise Exception("Controller didn't wake up.")
-            current_state = self.ping_controller_atoms(name, port)
-            self._ensure_port_is_open(port)
-            atoms = state['atoms']
-            print current_state
-            print atoms
-            for key, val in atoms.iteritems():
-                if key[0] == '@':
-                    switch_name, switch_number = key.split('_')
-                    if val != current_state[key]:
-                        print "desired = ", val, " current = ", current_state[key]
-                        port.write(str(switch_number))
-
-            port.write('$')
-            jsonmessage = self.read_raw(name, port)
-            
-            # print jsonmessage
-            # CMGTODO: I don't know why this code closes
-            # the port. Maybe it's required to make sure the
-            # write works.
-
-        print 'method took :', int(time.time() - start_time), ' seconds'
-        return jsonmessage
+        current_state = self.ping_controller_state(name)['atoms']
+        # print current_state
+        for key, val in current_state.iteritems():
+            if key[0] == '@':
+                relay_name, relay_number = key.split('_')
+                if int(val) != int(float(desired_state[key])):
+                    # print "current = ", val, " desired = ", desired_state[key]
+                    port.write(str(relay_number))
+        port.write('$')
+        state_dict = self.read_raw(name)
+        # print 'method took :', int(time.time() - start_time), ' seconds'
+        return state_dict
 
     # CMGTODO: without memorized decorator, setup dictionary if seen before
     def _delimiter_factory(self, message, device_name):
@@ -281,58 +274,10 @@ Relay's must have an '@' before them.
         print "Original message: [{}]".format(message)
 
         return field_separator, keyval_separator
-
-    def _build_json(self, message, device_name):
-        try:
-            message = message.rstrip()
-            contents = {}
-            atoms = {}
-
-            field_separator, keyval_separator =\
-                self._delimiter_factory(message, device_name)
-
-            key_val_pairs = message.split(field_separator)
-            for pair in key_val_pairs:
-                try:
-                    pair_list = pair.split(keyval_separator)
-                    key = pair_list[0].lstrip()
-                    val = pair_list[1].lstrip()
-                    atoms[key] = val
-                except:
-                    print 'got exception, pair is:', pair
-                    print 'field_separator is [{}]'.format(field_separator)
-                    print 'keyval_separator is [{}]'.format(keyval_separator)
-                    return None
-
-            meta_data = self.device_metadata[device_name]
-            for key in self.device_meta_data_field_names:
-                contents[key] = meta_data[key]
-            contents['timestamp'] = time.time()
-            contents['atoms'] = atoms
-
-            return json.dumps(contents)
-        except:
-            raise
-
-    def haus_api_put(self):
-        pass
-
-    def haus_api_get(self):
-        pass
-
-    # read_raw() is a method to pick up reading from the serial port at
-    #  a time when we don't know where we are in the stream. The routine
-   #  is able to build some atoms, but perhaps not more than that.
-    # if timeout, just return
-
-    def read_raw(self, name, port, timeout = 5):
-        """ return JSON representation of parsed line from port, possibly parsed partial line """
-        #### Should change empty readline to a timeout method.
-        ### Method broken! Byte read in is not comparable using =.
-        ### VAL acts as a token to know whether the next bytes string is a key or value in the serialized form###
-        ## based on continuos bytes with no newline return##
-        # The start of line for this test is the '$' for username, and the EOL is '#' #
-
+    
+    def read_raw(self, name, timeout = 5):
+        """ return dictionary representation of parsed line from port """
+       
         # We can start our data structure with any key value pair. A key value pair
         #  starts after a field_separator (comma or semi-colon), or after a new-line
         #  Apparently, there are also some scenarios where this could occur after a
@@ -353,18 +298,15 @@ Relay's must have an '@' before them.
 
         atoms = {}
         contents = {}
-        self._ensure_port_is_open(port)
-
         start_time = time.time()
+        port = self.named_connections[name]
         current = port.read()
+        # while current not in key_value_start_set:
         while current not in key_value_start_set:
-            print "Looking for key_value_start but found {}".format(current)
             current = port.read()
-            print current
             if time.time() - start_time > timeout: return
 
         done = False
-        # try:
         while not done:
             current_key = ''
             current_value = ''
@@ -389,9 +331,6 @@ Relay's must have an '@' before them.
 
             # either of these mark the EOL
             done = c in {b'\n', b'#', b'\r'}
-        # except:
-        #     print "Cannot read_raw"
-        #     raise # Exception("Cannot read_raw")
 
         # if empty_read_count <= empty_read_limit:
         meta_data = self.device_metadata[name]
@@ -412,8 +351,7 @@ Relay's must have an '@' before them.
         # CMGTODO: remove constant values from front of 'or'
         username = "Charles" or raw_input("What is the account username for all your devices?: ")
         # access_key = "Gust" or raw_input("What is the access key?: ")
-        timezone = "LA" or raw_input("What is your current timezone?: ")
-
+        
         while raw_input("Would you like to set up a device? (y/n)").startswith('y'):
             debug_only_device_select = int(raw_input("Are you setting up (1) LoveMeter, (2) ServoMood, or (3) Other?: "))
 
@@ -443,7 +381,6 @@ Relay's must have an '@' before them.
             device_data.append(device_type)
             device_data.append(username)
             # device_data.append(access_key)
-            device_data.append(timezone)
             device_data.append(timestamp)
 
             metadata = dict(zip(self.device_meta_data_field_names, device_data))
@@ -479,21 +416,19 @@ Relay's must have an '@' before them.
             return self.virtual_connections(group_mode)
 
         setup_instructions = """
-There are {} ports available.
+There are {} visible serial ports.
 If you would like to run through the device
 setup (which will require you unplugging your
 devices, and naming them one by one as they
 connect. Enter 'quit' or 'continue': """.format(num_devices)
         answer = raw_input(setup_instructions)
-        if answer == 'q' or answer == 'quit':
+        if answer[0] == 'q' :
             pass
-        if answer == 'c' or answer == 'continue':
-            answer = raw_input('Plug all your devices in now to continue, then hit enter:')
+        if answer[0] == 'c':
             num_devices = len(_serial_ports())
             answer = int(raw_input('Found {} devices, how many devices do you want to name? (1-n): '.format(num_devices)))
             username = raw_input("What is the account username for all your devices?: ")
             password = getpass.getpass("Enter your password: ")
-            timezone = raw_input("What is your current timezone?: ")
             self.session = requests.Session()
             self.session.auth = (username, password)
             response = self.session.get('%s/devices' % self.url)
@@ -508,7 +443,6 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
             starting = num_devices - answer
             while len(_serial_ports()) > (starting):
                 time.sleep(1)
-            device_meta_data_field_names = ('device_name', 'device_type', 'username', 'timezone', 'timestamp')
             current_number = 1
             for devices in xrange(answer):
                 current_ports = _serial_ports()
@@ -517,11 +451,17 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     time.sleep(1)
                     current_ports = _serial_ports()
                 metadata = {}
-                last_port = current_ports.pop()
+                if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
+                    last_port = current_ports.pop(0)
+                else:
+                    last_port = current_ports.pop()
+                
                 # Add logic for permissions here
                 known_id = -99
                 if last_port in User.primary_key_owners:  # Maybe put last_port in primary_key_owners and do this automatically
-                    print "A device can only have one owner, if you'd like to share data you can do so from the owner's dashboard."
+                    print "A device can only have one owner, if you'd like to share data you can do so from the device owner's dashboard."
+                    print "Alternatively you may have hit this break-out if you accidentally swapped devices on a usb which is not supported."
+                    print "Try again"
                     break
                 device_name = raw_input("What would you like to call device {}?: ".format(current_number))
                 device_type = raw_input("Is this device a 'controller' or a 'monitor'?: ")
@@ -534,35 +474,39 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     self.serial_locks[last_port] = Lock()
                     self.device_locks[device_name] = self.serial_locks[last_port]
                 
-                
-
                 device_data = []
                 device_data.append(device_name)
                 device_data.append(device_type)
                 device_data.append(username)
                 # device_data.append(device_id)
-                device_data.append(timezone)
-                device_data.append(timestamp)
-                metadata = dict(zip(device_meta_data_field_names, device_data))
-                self.device_metadata[device_name] = metadata
 
-                last_device_connected = self.pickup_conn()[-1]
-                if not last_device_connected.isOpen():
-                    last_device_connected.open()
+                device_data.append(timestamp)
+                metadata = dict(zip(self.device_meta_data_field_names, device_data))
+                self.device_metadata[device_name] = metadata
+                
+                if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
+                    last_device_connected = self.pickup_conn()[0]
+                else:
+                    last_device_connected = self.pickup_conn()[-1]
+                
+                self.named_connections[device_name] = last_device_connected
+                self._ensure_port_is_open(last_device_connected)
                 ### This is Arduino protocol ###
                 last_device_connected.write('Okay')
                 response = last_device_connected.readline()
-                assert response == 'Okay'
+                ######
                 if device_type == 'monitor':
-                    atoms = self.read_monitors_to_json(device_name, last_device_connected)['atoms']
+                    atoms = self.read_raw(device_name)['atoms']
+                    if atoms is None:
+                        print "Read nothing from the monitor."
+                        break
                     atom_identifiers = [name for name in atoms]
                 else:
-                    atoms = self.ping_controller_atoms(device_name, last_device_connected)
+                    atoms = self.ping_controller_state(device_name)['atoms']
                     atom_identifiers = [name for name in atoms]
                 payload = {'device_name': device_name, 'device_type': device_type, 'atoms': atom_identifiers}
                 if known_id != -99:
                     payload['device_id'] = known_id
-                print "made it payload"
                 response = self.session.post('%s/devices' % self.url,
                                          data=payload)
 
@@ -579,8 +523,12 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     User.primary_key_owners[last_port].append((device_id, username, device_name))
                 else:
                     User.primary_key_owners[last_port] = [(device_id, username, device_name)]
-
                 self.device_metadata[device_name]['device_id'] = device_id
+                
+                if device_type == 'controller':
+                    response = self.ping_controller_state(device_name)
+                    device_address = "%s/devices/%d/" % (self.url, device_id)
+                    response = self.session.post(device_address, json=response)
 
                 if baud_rate != '':
                     try:
@@ -592,8 +540,6 @@ connect. Enter 'quit' or 'continue': """.format(num_devices)
                     self.controllers[device_name] = last_device_connected
                 elif device_type == 'monitor':
                     self.monitors[device_name] = last_device_connected
-
-                self.named_connections[device_name] = last_device_connected
                 current_number += 1
             current_connections = self.named_connections
             return current_connections
